@@ -3,6 +3,7 @@
 import { Clock, Lock, MapPin, Radio, Wallet } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { BookingRequestButton } from "@/components/trip/BookingRequestButton";
+import { ItineraryWeatherPanel } from "@/components/trip/ItineraryWeatherPanel";
 import { useItineraryUpdates } from "@/hooks/useItineraryUpdates";
 import {
   formatCost,
@@ -31,18 +32,20 @@ export function RealItineraryTimeline({
   displayStatus,
   selectedItemId = null,
   onSelectItem,
+  onItineraryUpdated,
 }: {
   itinerary: ApiItinerary;
   displayStatus?: { label: string; tone: "success" | "accent" };
   selectedItemId?: string | null;
   onSelectItem?: (id: string) => void;
+  onItineraryUpdated?: (itinerary: ApiItinerary) => void;
 }) {
   const entries = orderedTimelineEntries(itinerary);
   const updates = useItineraryUpdates(itinerary.id);
 
   return (
     <section className="space-y-5">
-      <div className="overflow-hidden rounded-3xl border border-line bg-surface shadow-soft">
+      <div className="porcelain-card overflow-hidden rounded-3xl border border-line bg-surface shadow-soft">
         <div className="flex flex-col gap-4 border-b border-line bg-surface-raised p-5 sm:flex-row sm:items-start sm:justify-between sm:p-6">
           <div className="min-w-0">
             <p className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-accent">
@@ -66,6 +69,8 @@ export function RealItineraryTimeline({
         </div>
 
         <div className="space-y-4 p-4 sm:p-6">
+          <ItineraryWeatherPanel itinerary={itinerary} onItineraryUpdated={onItineraryUpdated} />
+
           {updates.replanInProgress ? (
             <p
               className="rounded-2xl border border-accent/20 bg-accent-soft px-4 py-3 text-sm text-ink"
@@ -122,7 +127,7 @@ export function RealItineraryTimeline({
           ) : null}
 
           <ol
-            className="space-y-4"
+            className="motion-stagger space-y-4"
             aria-label={`Itinerary for ${itinerary.title}`}
           >
             {entries.map((entry, entryIndex) => {
@@ -138,7 +143,7 @@ export function RealItineraryTimeline({
                   <li key={activity.id}>
                     <article
                       data-selected={selectedItemId === activity.id || undefined}
-                      className={`grid grid-cols-[4.5rem_minmax(0,1fr)] gap-3 rounded-2xl border bg-surface p-3 transition sm:grid-cols-[5rem_minmax(0,1fr)] sm:gap-4 sm:p-4 ${
+                    className={`porcelain-card grid grid-cols-[4.5rem_minmax(0,1fr)] gap-3 rounded-2xl border bg-surface p-3 transition sm:grid-cols-[5rem_minmax(0,1fr)] sm:gap-4 sm:p-4 ${
                         selectedItemId === activity.id ? "border-accent ring-2 ring-accent/20" : "border-accent/20"
                       }`}
                     >
@@ -213,7 +218,7 @@ export function RealItineraryTimeline({
 
                   <article
                     data-selected={selectedItemId === item.id || undefined}
-                    className={`grid grid-cols-[4.5rem_minmax(0,1fr)] gap-3 rounded-2xl border bg-surface p-3 sm:grid-cols-[5rem_minmax(0,1fr)] sm:gap-4 sm:p-4 ${
+                    className={`porcelain-card grid grid-cols-[4.5rem_minmax(0,1fr)] gap-3 rounded-2xl border bg-surface p-3 sm:grid-cols-[5rem_minmax(0,1fr)] sm:gap-4 sm:p-4 ${
                       item.item_state === "AFFECTED"
                         ? "border-warning/40"
                         : selectedItemId === item.id

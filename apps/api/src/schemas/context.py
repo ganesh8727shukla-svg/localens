@@ -26,6 +26,7 @@ class WeatherContextResponse(BaseModel):
     longitude: float
     observed_at: datetime | None = None
     timezone: str | None = None
+    timezone_offset_seconds: int | None = None
     temperature_c: float | None = None
     feels_like_c: float | None = None
     humidity: float | None = None
@@ -52,6 +53,7 @@ class WeatherForecastEntry(BaseModel):
     longitude: float
     forecast_at: datetime | None = None
     timezone: str | None = None
+    timezone_offset_seconds: int | None = None
     temperature_c: float | None = None
     feels_like_c: float | None = None
     humidity: float | None = None

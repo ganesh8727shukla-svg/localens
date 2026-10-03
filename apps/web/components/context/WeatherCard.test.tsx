@@ -21,6 +21,7 @@ const weather: WeatherContextResponse = {
   longitude: 72.83,
   observed_at: stamp,
   timezone: null,
+  timezone_offset_seconds: null,
   temperature_c: 27,
   feels_like_c: null,
   humidity: 60,
@@ -71,11 +72,11 @@ afterEach(() => {
 describe("WeatherCard", () => {
   it("shows explicitly labelled demo conditions and forecast values", async () => {
     await renderCard();
-    expect(container.textContent).toContain("Development weather");
+    expect(container.textContent).toContain("Development mock");
     expect(container.textContent).toContain("Weather near Fort");
     expect(container.textContent).toContain("27°C");
-    expect(container.textContent).toContain("Next forecast updates");
-    expect(getWeatherContextMock).toHaveBeenCalledWith(18.93, 72.83, expect.any(AbortSignal));
+    expect(container.textContent).toContain("Upcoming 3-hour forecast");
+    expect(getWeatherContextMock).toHaveBeenCalledWith(18.93, 72.83, expect.any(AbortSignal), undefined, false);
   });
 
   it("refetches and visibly changes for each development scenario returned by the API client", async () => {

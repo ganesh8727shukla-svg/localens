@@ -42,10 +42,10 @@ export function SiteHeader() {
   return (
     <header className="sticky top-0 z-50 lg:static">
       {/* Mobile and tablet header */}
-      <div className="flex h-16 items-center justify-between border-b border-line bg-surface/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-surface/85 lg:hidden">
-        <Link href="/" className="flex items-center gap-2 font-semibold text-ink">
-          <span className="flex size-9 items-center justify-center rounded-xl bg-primary text-primary-ink">
-            <Compass className="size-5" aria-hidden="true" />
+      <div className="flex h-16 items-center justify-between border-b border-line bg-surface/95 px-4 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-surface/85 lg:hidden">
+        <Link href="/" className="flex items-center gap-2.5 font-semibold text-ink">
+          <span className="flex size-9 items-center justify-center rounded-xl border border-pastel-lemon/80 bg-pastel-lemon text-ink shadow-sm">
+            <Compass className="size-4.5" aria-hidden="true" />
           </span>
           <span className="text-[17px] tracking-tight">LocaLens</span>
         </Link>
@@ -61,9 +61,9 @@ export function SiteHeader() {
       </div>
 
       {/* Desktop sidebar */}
-      <aside className="fixed inset-y-0 left-0 z-50 hidden w-60 flex-col bg-primary px-4 py-6 text-primary-ink lg:flex">
-        <Link href="/" className="flex items-center gap-3 px-2 font-semibold">
-          <span className="flex size-10 items-center justify-center rounded-xl bg-pastel-lemon text-ink">
+      <aside className="fixed inset-y-0 left-0 z-50 hidden w-60 flex-col border-r border-primary-ink/10 bg-primary px-4 py-6 text-primary-ink lg:flex">
+        <Link href="/" className="group flex items-center gap-3 px-2 font-semibold">
+          <span className="flex size-10 items-center justify-center rounded-xl border border-pastel-lemon/80 bg-pastel-lemon text-ink shadow-sm transition-transform duration-200 group-hover:scale-105">
             <Compass className="size-5" aria-hidden="true" />
           </span>
           <span className="text-lg tracking-tight">LocaLens</span>
@@ -129,7 +129,7 @@ export function SiteHeader() {
       <div
         id="mobile-nav-panel"
         className={cn(
-          "border-b border-line bg-surface shadow-soft lg:hidden",
+          "border-b border-line bg-surface/95 shadow-xl backdrop-blur-lg lg:hidden",
           mobileOpen ? "block" : "hidden",
         )}
       >

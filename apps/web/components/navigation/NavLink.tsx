@@ -29,10 +29,10 @@ export function NavLink({
       onClick={onClick}
       aria-current={isActive ? "page" : undefined}
       className={cn(
-        "inline-flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
+        "inline-flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200",
         "text-ink-muted hover:bg-surface-raised hover:text-ink",
         "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-        isActive && "bg-accent-soft text-accent",
+        isActive && "border border-accent/30 bg-accent-soft font-semibold text-accent shadow-sm",
         className,
       )}
     >

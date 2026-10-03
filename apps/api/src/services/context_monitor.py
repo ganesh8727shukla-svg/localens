@@ -1,17 +1,15 @@
 """ContextMonitor — one shared background monitor (Phase 9).
 
-Periodically determines which itineraries need monitoring (active,
-future/in-progress, not CANCELLED/COMPLETED), refreshes weather/events
-for their remaining items, compares against the last known context via
-ContextImpactService, and submits replan candidates to ReplanningService
-when material impact is detected.
+Determines which itinerary stops are approaching (active, future/in-progress,
+not CANCELLED/COMPLETED), refreshes current weather at each stop 15 minutes
+before its planned start, compares against the last known stop context via
+ContextImpactService, and submits replan candidates when material impact is
+detected.
 
 Single shared instance per process — never one per SSE connection. Uses
-an injectable clock (`now_fn`) for testability. Weather/event check
-frequency scales with proximity to the relevant itinerary time: the
-`_interval_for` method shortens the polling interval as the itinerary's
-start time approaches, fully driven by Settings (no hardcoded demo
-branches).
+an injectable clock (`now_fn`) for testability. The shared loop wakes at the
+next stop's just-in-time check or the configured maximum interval, whichever
+comes first.
 
 Multi-worker safety: this codebase runs as a single uvicorn process in
 dev (scripts/dev.ps1/dev.sh) with no evidence of a multi-worker
@@ -24,14 +22,16 @@ within the same process.
 """
 
 from __future__ import annotations
-from sqlalchemy.orm import selectinload
+
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.orm import selectinload
 
 from src.adapters.errors import AdapterError
 from src.adapters.events import EventAdapter
@@ -42,6 +42,8 @@ from src.repositories.experience_repository import ExperienceRepository
 from src.services.context_impact import ContextImpactService
 
 logger = logging.getLogger(__name__)
+_ITINERARY_TIMEZONE = ZoneInfo("Asia/Kolkata")
+_JUST_IN_TIME_WINDOW = timedelta(minutes=15)
 
 ClockFn = Callable[[], datetime]
 
@@ -64,7 +66,8 @@ class ContextMonitor:
         self._replan_callback = replan_callback
         self._clock = clock
         self._impact = ContextImpactService(settings)
-        self._last_weather_by_location: dict[str, WeatherContext] = {}
+        self._last_weather_by_item: dict[str, WeatherContext] = {}
+        self._checked_current_slots: set[str] = set()
         self._task: asyncio.Task[None] | None = None
         self._started = False
 
@@ -91,8 +94,8 @@ class ContextMonitor:
         """Polling interval (seconds), shorter as the itinerary's start
         time approaches — fully configuration-driven via
         weather_monitor_interval_seconds, never a hardcoded demo path."""
-        now = self._clock()
-        start_dt = datetime.combine(itinerary.itinerary_date, itinerary.start_time, tzinfo=now.tzinfo)
+        now = self._as_local(self._clock())
+        start_dt = self._as_local(datetime.combine(itinerary.itinerary_date, itinerary.start_time))
         hours_until = (start_dt - now).total_seconds() / 3600
         base = self._settings.weather_monitor_interval_seconds
         if hours_until <= 2:
@@ -104,9 +107,9 @@ class ContextMonitor:
         return base * 4
 
     async def active_itineraries(self, session: AsyncSession) -> list[Itinerary]:
-        now = self._clock()
+        now = self._as_local(self._clock())
         result = await session.execute(
-            select(Itinerary).where(
+            select(Itinerary).options(selectinload(Itinerary.items)).where(
                 Itinerary.status.in_(["VALIDATED", "BOOKING_REQUESTED"]),
                 Itinerary.itinerary_date >= now.date(),
             )
@@ -115,35 +118,40 @@ class ContextMonitor:
 
     async def check_itinerary_weather(self, session: AsyncSession, itinerary: Itinerary) -> None:
         exp_repo = ExperienceRepository(session)
-        experiences_by_id = {}
+        now = self._as_local(self._clock())
         for item in itinerary.items:
+            if item.item_state in ("CANCELLED", "INVALIDATED"):
+                continue
+            planned_start = self._as_local(item.planned_start)
+            planned_end = self._as_local(item.planned_end)
+            if now < planned_start - _JUST_IN_TIME_WINDOW or now > planned_end:
+                continue
+            check_key = self._item_check_key(itinerary.id, item.id, planned_start)
+            if check_key in self._checked_current_slots:
+                continue
+
             exp = await exp_repo.get_by_id(item.experience_id)
-            if exp is not None:
-                experiences_by_id[item.experience_id] = exp
-        if not experiences_by_id:
-            return
+            if exp is None:
+                continue
 
-        first_exp = next(iter(experiences_by_id.values()))
-        lat, lng = first_exp.location.latitude, first_exp.location.longitude
-        location_key = f"{round(lat, 2)}:{round(lng, 2)}"
+            try:
+                new_weather = await self._weather_adapter.refresh_current(
+                    exp.location.latitude, exp.location.longitude
+                )
+            except AdapterError as exc:
+                logger.warning("ContextMonitor: weather fetch failed for %s/%s: %s", itinerary.id, item.id, exc)
+                continue  # retry on a later pass; never fabricate weather
 
-        try:
-            new_weather = await self._weather_adapter.get_current(lat, lng)
-        except AdapterError as exc:
-            logger.warning("ContextMonitor: weather fetch failed for %s: %s", itinerary.id, exc)
-            return  # never fabricate — skip this cycle, do not auto-replan
-
-        previous_weather = self._last_weather_by_location.get(location_key)
-        self._last_weather_by_location[location_key] = new_weather
-
-        result = self._impact.assess_weather(
-            items=list(itinerary.items),
-            experiences_by_id=experiences_by_id,
-            previous_weather=previous_weather,
-            new_weather=new_weather,
-        )
-        if result.affected and self._replan_callback is not None:
-            await self._replan_callback(itinerary.id, "WEATHER_CHANGED", result)
+            self._checked_current_slots.add(check_key)
+            result = self._impact.assess_weather(
+                items=[item],
+                experiences_by_id={item.experience_id: exp},
+                previous_weather=self._last_weather_by_item.get(check_key),
+                new_weather=new_weather,
+            )
+            self._last_weather_by_item[check_key] = new_weather
+            if result.affected and self._replan_callback is not None:
+                await self._replan_callback(itinerary.id, "WEATHER_CHANGED", result)
 
     async def run_once(self) -> int:
         """Runs exactly one monitoring pass over all active itineraries.
@@ -164,9 +172,52 @@ class ContextMonitor:
                     await self.run_once()
                 except Exception:  # noqa: BLE001 — the monitor must never crash the process
                     logger.exception("ContextMonitor cycle failed")
-                await asyncio.sleep(self._settings.weather_monitor_interval_seconds)
+                try:
+                    delay = await self._seconds_until_next_check()
+                except Exception:  # noqa: BLE001 — scheduling errors must not stop monitoring
+                    logger.exception("ContextMonitor could not calculate the next check time")
+                    delay = self._settings.weather_monitor_interval_seconds
+                await asyncio.sleep(delay)
         except asyncio.CancelledError:
             raise
+
+    @staticmethod
+    def _as_local(value: datetime) -> datetime:
+        if value.tzinfo is None:
+            return value.replace(tzinfo=_ITINERARY_TIMEZONE)
+        return value.astimezone(_ITINERARY_TIMEZONE)
+
+    @staticmethod
+    def _item_check_key(itinerary_id: str, item_id: str, planned_start: datetime) -> str:
+        return f"{itinerary_id}:{item_id}:{planned_start.isoformat()}"
+
+    async def _seconds_until_next_check(self) -> float:
+        base_interval = max(30, self._settings.weather_monitor_interval_seconds)
+        now = self._as_local(self._clock())
+        seconds_until_due: list[float] = []
+        async with self._session_factory() as session:
+            itineraries = await self.active_itineraries(session)
+            for itinerary in itineraries:
+                for item in itinerary.items:
+                    if item.item_state in ("CANCELLED", "INVALIDATED"):
+                        continue
+                    planned_start = self._as_local(item.planned_start)
+                    planned_end = self._as_local(item.planned_end)
+                    if now > planned_end:
+                        continue
+                    key = self._item_check_key(itinerary.id, item.id, planned_start)
+                    if key in self._checked_current_slots:
+                        continue
+                    seconds_until_due.append((planned_start - _JUST_IN_TIME_WINDOW - now).total_seconds())
+
+        if not seconds_until_due:
+            return float(base_interval)
+        next_due = min(seconds_until_due)
+        if next_due <= 0:
+            # Retry provider failures without busy-looping; successful checks
+            # are removed from the next-pass candidate set above.
+            return min(float(base_interval), 60.0)
+        return min(float(base_interval), max(1.0, next_due))
 
 
 _shared_monitor: ContextMonitor | None = None

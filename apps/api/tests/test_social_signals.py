@@ -13,6 +13,7 @@ from src.adapters.social_signals import (
     KeywordSocialSignalInterpreter,
     NormalizedSocialSignal,
     SocialSeverity,
+    SocialSignalUnavailableError,
     SocialTopic,
 )
 from src.core.config import Settings
@@ -103,6 +104,19 @@ def test_bluesky_adapter_normalizes_and_discards_raw_post_fields(monkeypatch) ->
     assert normalized[0].topic is SocialTopic.FLOODING
     assert normalized[1].source_fingerprint != normalized[0].source_fingerprint
     assert all("text" not in item.model_dump() and "handle" not in item.model_dump() for item in normalized)
+
+
+def test_bluesky_forbidden_is_reported_without_fabricating_signals() -> None:
+    class ForbiddenAdapter:
+        async def search(self, area_name, aliases, *, center_latitude, center_longitude, since):
+            raise SocialSignalUnavailableError("provider denied request", status_code=403)
+
+    service = SocialSignalService(Settings(social_signal_cache_ttl_seconds=0), FakeGeocoder(), ForbiddenAdapter())
+    response = asyncio.run(service.get_social_signals(18.93, 72.83, 10))
+    assert response.status == "UNAVAILABLE"
+    assert response.clusters == []
+    assert "HTTP 403" in response.message
+    assert "No social signals were verified" in response.message
 
 
 def test_aggregation_is_bounded_and_reports_sparse_trend_honestly() -> None:

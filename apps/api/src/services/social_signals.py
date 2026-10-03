@@ -120,13 +120,19 @@ class SocialSignalService:
                 area_name,
                 location_source,
             )
-        except SocialSignalUnavailableError:
+        except SocialSignalUnavailableError as exc:
+            message = (
+                f"Bluesky public search returned HTTP {exc.status_code}. "
+                "No social signals were verified or added to the map."
+                if exc.status_code is not None
+                else "Bluesky public search could not be reached. No social signals were verified or added to the map."
+            )
             return self._stale_or_empty(
                 key,
                 "UNAVAILABLE",
                 radius_km,
                 now,
-                "Bluesky public search is temporarily unavailable.",
+                message,
                 area_name,
                 location_source,
             )

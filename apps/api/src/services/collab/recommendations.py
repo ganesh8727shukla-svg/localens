@@ -113,8 +113,12 @@ def real_schedule_evidence(
             if window.is_closed or window.open_time is None or window.close_time is None:
                 continue
             try:
-                opening = datetime.combine(group.itinerary_date, time.fromisoformat(window.open_time), local_tz).astimezone(UTC)
-                closing = datetime.combine(group.itinerary_date, time.fromisoformat(window.close_time), local_tz).astimezone(UTC)
+                opening = datetime.combine(
+                    group.itinerary_date, time.fromisoformat(window.open_time), local_tz
+                ).astimezone(UTC)
+                closing = datetime.combine(
+                    group.itinerary_date, time.fromisoformat(window.close_time), local_tz
+                ).astimezone(UTC)
             except ValueError:
                 continue
             if closing <= opening:
@@ -222,30 +226,45 @@ async def recommend_for_group(
             items=[], candidate_count=len(candidates), excluded_count=len(candidates), warnings=warnings
         )
 
+    # Keep budget, distance, currency and accessibility as hard checks.
+    # The current open-places catalog often has no provider-sourced hours
+    # or availability slots. Those unknowns should be surfaced as
+    # confirmation work, not silently turn the whole recommendations
+    # section empty. They are deliberately removed only from this shortlist
+    # pass; a recommendation is not a booking or a confirmed schedule.
+    shortlist_constraints = constraints.model_copy(
+        update={
+            "available_date": None,
+            "available_start": None,
+            "available_end": None,
+            "party_size": None,
+        }
+    )
     feasibility = FeasibilityService(routing)
     ranked: list[tuple[float, CollabRecommendation]] = []
     for experience in candidates:
-        verdict = await feasibility.evaluate(experience, constraints, travel_profile=group.travel_mode)
-        if verdict.status != "FEASIBLE" or not real_schedule_evidence(group, experience, len(members)):
+        verdict = await feasibility.evaluate(experience, shortlist_constraints, travel_profile=group.travel_mode)
+        if verdict.status == "INFEASIBLE":
             continue
         score = score_group_experience(experience, profiles, group.objectives or {})
+        schedule_verified = real_schedule_evidence(group, experience, len(members))
         ranked.append(
             (
                 score["compatibility_score"],
                 CollabRecommendation(
                     experience=ExperienceSummary.model_validate(experience),
+                    hard_constraint_status=verdict.status,
+                    schedule_status="VERIFIED" if schedule_verified else "NEEDS_CONFIRMATION",
                     **score,
                 ),
             )
         )
 
     ranked.sort(key=lambda row: row[0], reverse=True)
-    if group.itinerary_date is not None:
-        warnings.append(
-            "Date-specific recommendations require verified opening hours and real availability with enough remaining capacity; unknown records are excluded."
-        )
-    else:
-        warnings.append("Add a date and time window to check verified opening hours and live availability.")
+    warnings.append(
+        "These are shortlist suggestions. Confirm venue hours, current prices, and group availability "
+        "before finalizing; missing catalog data is shown as unverified."
+    )
     return CollabRecommendationResponse(
         items=[item for _, item in ranked[:limit]],
         candidate_count=len(candidates),

@@ -1,15 +1,18 @@
 import type { HTMLAttributes } from "react";
 import { cn } from "@/lib/utils/cn";
+import { ScrollReveal } from "@/components/common/ScrollReveal";
 
 export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (
-    <div
-      className={cn(
-        "rounded-2xl border border-line bg-surface-raised shadow-soft",
-        className,
-      )}
-      {...props}
-    />
+    <ScrollReveal>
+      <div
+        className={cn(
+          "porcelain-card rounded-2xl border border-line bg-surface-raised shadow-soft",
+          className,
+        )}
+        {...props}
+      />
+    </ScrollReveal>
   );
 }
 

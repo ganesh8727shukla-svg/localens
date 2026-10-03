@@ -126,6 +126,7 @@ class TwinWeatherEvidence(BaseModel):
     visibility_km: float | None = None
     severe_alert: bool | None = None
     status: WeatherEvidenceStatus
+    context_kind: Literal["FORECAST", "CURRENT", "HYPOTHETICAL", "UNKNOWN"] = "FORECAST"
     observed_at: datetime | None = None
     expires_at: datetime | None = None
 
@@ -156,6 +157,15 @@ class TwinSocialEvidence(BaseModel):
     message: str | None = None
 
 
+class TwinRouteOption(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    distance_km: float
+    duration_minutes: float
+    geometry: dict[str, Any]
+    source: Literal["osrm"] = "osrm"
+
+
 class TwinRouteEvidence(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -169,6 +179,7 @@ class TwinRouteEvidence(BaseModel):
     scenario_duration_minutes: float | None = None
     delta_minutes: float | None = None
     explanation: str | None = None
+    alternatives: list[TwinRouteOption] = Field(default_factory=list, max_length=3)
 
 
 class TwinPlanState(BaseModel):
@@ -176,6 +187,7 @@ class TwinPlanState(BaseModel):
 
     stops: list[TwinStop] = Field(default_factory=list)
     weather: list[TwinWeatherEvidence] = Field(default_factory=list)
+    current_weather: list[TwinWeatherEvidence] = Field(default_factory=list)
     social: TwinSocialEvidence
     routes: list[TwinRouteEvidence] = Field(default_factory=list)
 
@@ -217,6 +229,13 @@ class SimulationAlternative(BaseModel):
     category: str
     environmental_type: str
     weather_suitability: WeatherSuitability
+    weather_status: WeatherEvidenceStatus = "UNAVAILABLE"
+    weather_condition: str | None = None
+    weather_temperature_c: float | None = None
+    weather_precipitation_probability: float | None = None
+    weather_precipitation_amount: float | None = None
+    weather_wind_speed: float | None = None
+    weather_at: datetime | None = None
     ranking_score: float
     is_synthetic: bool
 
@@ -264,6 +283,7 @@ __all__ = [
     "SimulationStatus",
     "TwinPlanState",
     "TwinRouteEvidence",
+    "TwinRouteOption",
     "TwinSocialCluster",
     "TwinSocialEvidence",
     "TwinStop",

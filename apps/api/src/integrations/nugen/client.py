@@ -54,7 +54,7 @@ class NugenClient:
         if response.status_code in (401, 403):
             raise AdapterUnavailableError("Nugen authentication failed.") from None
         if response.status_code == 404:
-            raise AdapterUnavailableError("Nugen model endpoint was not found.") from None
+            raise AdapterUnavailableError("Nugen returned HTTP 404 for the configured endpoint.") from None
         if response.status_code == 422:
             raise AdapterUnavailableError("Nugen rejected the request format.") from None
         if response.status_code >= 500:

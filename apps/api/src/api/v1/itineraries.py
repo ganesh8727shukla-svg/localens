@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Annotated
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import Response, StreamingResponse
@@ -22,8 +23,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.adapters.ai import AIAdapter
 from src.adapters.embedding import EmbeddingAdapter
 from src.adapters.routing import RoutingAdapter
+from src.adapters.weather import WeatherAdapter
 from src.core.ai import get_ai_adapter
 from src.core.config import Settings, get_settings
+from src.core.context import get_weather_adapter
 from src.core.db import get_session
 from src.core.deps import require_traveler
 from src.core.embedding import get_embedding_adapter
@@ -48,10 +51,12 @@ from src.schemas.itinerary import (
     NearbyOpenAlternative,
     PreviewIdeasRequest,
 )
+from src.schemas.itinerary_weather import ItineraryWeatherResponse
 from src.schemas.replanning import ReplanChangeSetResponse, ReplanRequest, ReplanResponse
 from src.services.compose_itinerary import ComposeOutcome, compose_and_persist_itinerary
 from src.services.itinerary_hours import check_itinerary_stop_opening_hours
 from src.services.itinerary_preview import preview_itinerary_plans
+from src.services.itinerary_weather import get_itinerary_weather_advisories
 from src.services.replanning import ReplanningService, ReplanOutcome
 from src.services.sse import sse_updates_stream
 
@@ -234,6 +239,26 @@ async def get_itinerary(
     return await _to_itinerary_response(itinerary, session)
 
 
+@router.get("/itineraries/{itinerary_id}/weather", response_model=ItineraryWeatherResponse)
+async def get_itinerary_weather(
+    itinerary_id: str,
+    user: Annotated[User, Depends(require_traveler)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    weather_adapter: Annotated[WeatherAdapter, Depends(get_weather_adapter)],
+) -> ItineraryWeatherResponse:
+    """Return scheduled-time weather advisories without changing trip data."""
+    if user.traveler is None:
+        raise ApiError("Traveler profile not found", status_code=403)
+    itinerary = await _get_owned_or_404(session, itinerary_id, user.traveler.id)
+    return await get_itinerary_weather_advisories(
+        itinerary=itinerary,
+        session=session,
+        settings=settings,
+        weather_adapter=weather_adapter,
+    )
+
+
 @router.post("/itineraries/{itinerary_id}/items", response_model=ItineraryResponse | CompositionValidationResponse)
 async def add_itinerary_item(
     itinerary_id: str,
@@ -328,10 +353,15 @@ async def replan_itinerary(
     from src.services.context_impact import ContextImpactResult, ImpactSeverity
 
     itinerary = await _get_owned_or_404(session, itinerary_id, user.traveler.id)
-    now = datetime.now(itinerary.items[0].planned_start.tzinfo) if itinerary.items else datetime.now()
+    local_tz = ZoneInfo("Asia/Kolkata")
+    now = datetime.now(local_tz)
+
+    def local_time(value: datetime) -> datetime:
+        return value if value.tzinfo is not None else value.replace(tzinfo=local_tz)
+
     flexible_ids = [
         i.id for i in itinerary.items
-        if i.planned_end > now and not i.is_locked
+        if local_time(i.planned_end) > now and not i.is_locked
     ]
     impact = ContextImpactResult(
         affected=bool(flexible_ids),

@@ -20,6 +20,7 @@ CURRENT_PAYLOAD = {
     "wind": {"speed": 3.1},
     "visibility": 10000,
     "dt": 1700000000,
+    "timezone": 19800,
 }
 
 SEVERE_PAYLOAD = {
@@ -54,6 +55,7 @@ def test_get_current_normalizes_live_response(monkeypatch) -> None:
     assert context.weather_code == 800
     assert context.severe_alert is False
     assert context.visibility_km == 10.0
+    assert context.timezone_offset_seconds == 19800
 
 
 def test_severe_weather_code_flags_severe_alert(monkeypatch) -> None:
@@ -116,21 +118,27 @@ def test_5xx_raises_unavailable(monkeypatch) -> None:
         asyncio.run(adapter.get_current(18.93, 72.83))
 
 
-def test_cache_hit_skips_second_http_call(monkeypatch) -> None:
-    client = FakeAsyncClient(responder=sequence_responder([make_response(200, CURRENT_PAYLOAD)]))
+def test_explicit_refresh_bypasses_cache(monkeypatch) -> None:
+    client = FakeAsyncClient(responder=sequence_responder([
+        make_response(200, CURRENT_PAYLOAD),
+        make_response(200, {**CURRENT_PAYLOAD, "main": {**CURRENT_PAYLOAD["main"], "temp": 31.0}}),
+    ]))
     _patch_client(monkeypatch, client)
     adapter = OpenWeatherAdapter(_settings(weather_cache_ttl_seconds=900))
 
-    async def _twice():
+    async def _run():
         first = await adapter.get_current(18.93, 72.83)
-        second = await adapter.get_current(18.93, 72.83)
-        return first, second
+        cached = await adapter.get_current(18.93, 72.83)
+        fresh = await adapter.refresh_current(18.93, 72.83)
+        return first, cached, fresh
 
-    first, second = asyncio.run(_twice())
+    first, cached, fresh = asyncio.run(_run())
 
-    assert len(client.calls) == 1  # only one real HTTP call
+    assert len(client.calls) == 2
     assert first.source == WeatherSource.LIVE
-    assert second.source == WeatherSource.CACHED
+    assert cached.source == WeatherSource.CACHED
+    assert fresh.source == WeatherSource.LIVE
+    assert fresh.temperature_c == 31.0
 
 
 def test_missing_api_key_raises_unavailable(monkeypatch) -> None:
@@ -158,6 +166,7 @@ def test_mock_adapter_never_labelled_live() -> None:
 
 def test_get_forecast_normalizes_list(monkeypatch) -> None:
     forecast_payload = {
+        "city": {"timezone": 19800},
         "list": [
             {
                 "dt": 1700000000,
@@ -179,3 +188,4 @@ def test_get_forecast_normalizes_list(monkeypatch) -> None:
     assert forecast[0].precipitation_probability == 80.0
     assert forecast[0].precipitation_amount == 3.5
     assert forecast[0].condition == "Rain"
+    assert forecast[0].timezone_offset_seconds == 19800

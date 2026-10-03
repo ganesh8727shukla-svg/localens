@@ -53,6 +53,14 @@ class RoutingAdapter(Protocol):
         include_geometry: bool = False,
     ) -> RouteResult: ...
 
+    async def get_route_alternatives(
+        self,
+        origin: tuple[float, float],
+        destination: tuple[float, float],
+        *,
+        profile: str,
+    ) -> list[RouteResult]: ...
+
     async def get_travel_time_matrix(
         self, origin: tuple[float, float], destinations: list[tuple[str, float, float]], *, profile: str
     ) -> list[MatrixEntry]: ...
@@ -74,6 +82,16 @@ class MockRoutingAdapter:
         # ~25 km/h blended local-travel assumption for a labelled estimate only.
         duration = (distance / 25) * 60
         return RouteResult(distance_km=distance, duration_minutes=duration, geometry=None, source="haversine_estimate")
+
+    async def get_route_alternatives(
+        self,
+        origin: tuple[float, float],
+        destination: tuple[float, float],
+        *,
+        profile: str,
+    ) -> list[RouteResult]:
+        # Estimates have no road geometry and must not be presented as route options.
+        return []
 
     async def get_travel_time_matrix(
         self, origin: tuple[float, float], destinations: list[tuple[str, float, float]], *, profile: str
@@ -161,6 +179,38 @@ class OSRMRoutingAdapter:
         )
         self._route_cache.set(cache_key, result)
         return result
+
+    async def get_route_alternatives(
+        self,
+        origin: tuple[float, float],
+        destination: tuple[float, float],
+        *,
+        profile: str,
+    ) -> list[RouteResult]:
+        """Return additional real OSRM routes; they do not encode assumed closures."""
+        self._check_profile(profile)
+        coords = f"{origin[1]},{origin[0]};{destination[1]},{destination[0]}"
+        body = await self._request(
+            f"/route/v1/{profile}/{coords}",
+            {"alternatives": "true", "overview": "full", "geometries": "geojson"},
+        )
+        routes = body.get("routes") or []
+        # OSRM returns the fastest route first. The primary route is already
+        # represented by the itinerary; only return additional route options.
+        return [
+            RouteResult(
+                distance_km=round(route["distance"] / 1000, 3),
+                duration_minutes=round(route["duration"] / 60, 2),
+                geometry=route.get("geometry"),
+                source="osrm",
+            )
+            for route in routes[1:4]
+            if isinstance(route, dict)
+            and isinstance(route.get("distance"), (int, float))
+            and isinstance(route.get("duration"), (int, float))
+            and isinstance(route.get("geometry"), dict)
+            and route["geometry"].get("type") == "LineString"
+        ]
 
     async def get_travel_time_matrix(
         self, origin: tuple[float, float], destinations: list[tuple[str, float, float]], *, profile: str

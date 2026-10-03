@@ -97,7 +97,7 @@ export function ExperienceDetail({ experience }: { experience: Experience }) {
 
   return (
     <div className="space-y-6">
-      <div className="relative aspect-[16/9] w-full overflow-hidden rounded-3xl bg-surface-sunken shadow-soft sm:aspect-[21/9]">
+      <div className="porcelain-card relative aspect-[16/9] w-full overflow-hidden rounded-3xl bg-surface-sunken shadow-soft sm:aspect-[21/9]">
         <ExperienceImageView
           src={experience.imageUrl}
           alt=""
@@ -124,7 +124,7 @@ export function ExperienceDetail({ experience }: { experience: Experience }) {
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:gap-8">
         <div className="space-y-5">
-          <section className="rounded-3xl border border-line bg-surface p-5 shadow-soft sm:p-6">
+          <section className="porcelain-card rounded-3xl border border-line bg-surface p-5 shadow-soft sm:p-6">
             <div className="flex flex-wrap items-center gap-2">
               <Badge tone="accent">{experience.categoryLabel}</Badge>
               <Badge tone={experience.provider.verified ? "success" : "neutral"}>

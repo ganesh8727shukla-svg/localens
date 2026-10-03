@@ -212,6 +212,7 @@ export function RealTripDetail({ itineraryId }: { itineraryId: string }) {
 
         <RealItineraryTimeline
           itinerary={itinerary}
+          onItineraryUpdated={setItinerary}
           selectedItemId={selectedItemId}
           onSelectItem={setSelectedItemId}
           displayStatus={tripProgress?.status === "ACTIVE"

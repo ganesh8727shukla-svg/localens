@@ -12,8 +12,10 @@ from src.adapters.embedding import MockEmbeddingAdapter
 from src.adapters.geocoding import MockGeocodingAdapter
 from src.adapters.poi import MockPOIAdapter
 from src.adapters.routing import MockRoutingAdapter
+from src.adapters.weather import MockWeatherAdapter
 from src.core.ai import get_ai_adapter
 from src.core.app import create_app
+from src.core.context import get_weather_adapter
 from src.core.db import Base, get_session
 from src.core.embedding import get_embedding_adapter
 from src.core.location import get_geocoding_adapter, get_poi_adapter, get_routing_adapter
@@ -47,6 +49,13 @@ def _override_location_adapters(app) -> None:
 def _override_ai_adapters(app) -> None:
     app.dependency_overrides[get_ai_adapter] = lambda: MockAIAdapter()
     app.dependency_overrides[get_embedding_adapter] = lambda: MockEmbeddingAdapter()
+
+
+def _override_context_adapters(app) -> None:
+    # API contract tests must not depend on a configured OpenWeather key or
+    # outbound network availability. Provider parsing is tested separately
+    # with fake HTTP clients in test_weather_adapter.py.
+    app.dependency_overrides[get_weather_adapter] = lambda: MockWeatherAdapter()
 
 
 @pytest.fixture()
@@ -143,6 +152,7 @@ def client(session_factory, seeded_ids):
     app.dependency_overrides[get_session] = override_get_session
     _override_location_adapters(app)
     _override_ai_adapters(app)
+    _override_context_adapters(app)
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
@@ -309,6 +319,7 @@ def discovery_client(session_factory, discovery_dataset):
     app.dependency_overrides[get_session] = override_get_session
     _override_location_adapters(app)
     _override_ai_adapters(app)
+    _override_context_adapters(app)
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()

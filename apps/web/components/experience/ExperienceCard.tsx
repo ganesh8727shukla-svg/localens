@@ -7,6 +7,7 @@ import type { Experience } from "@/types/experience";
 import { Badge } from "@/components/ui/Badge";
 import { PersonalizationBadge } from "@/components/ui/PersonalizationBadge";
 import { ExperienceImageView } from "@/components/experience/ExperienceImageView";
+import { ScrollReveal } from "@/components/common/ScrollReveal";
 import { cn } from "@/lib/utils/cn";
 
 const availabilityTone = {
@@ -63,17 +64,18 @@ export function ExperienceCard({
   }
 
   return (
-    <article
-      className={cn(
-        "group relative flex overflow-hidden rounded-2xl border border-line bg-surface-raised shadow-soft transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl",
-        isCompact ? "flex-row items-stretch" : "flex-col",
-        isFeatured && "sm:col-span-2",
-        className,
-      )}
-    >
+    <ScrollReveal>
+      <article
+        className={cn(
+          "group relative flex overflow-hidden rounded-2xl border border-line bg-surface-raised shadow-soft porcelain-card",
+          isCompact ? "flex-row items-stretch" : "flex-col",
+          isFeatured && "sm:col-span-2",
+          className,
+        )}
+      >
       <div
         className={cn(
-          "relative shrink-0 overflow-hidden bg-pastel-sky/30",
+          "relative shrink-0 overflow-hidden bg-pastel-sky/20",
           isCompact ? "w-28 sm:w-36" : "aspect-[4/3] w-full",
           isFeatured && "sm:aspect-auto sm:min-h-[220px]",
         )}
@@ -83,7 +85,7 @@ export function ExperienceCard({
           alt=""
           fill
           sizes={isCompact ? "144px" : "(min-width: 640px) 400px, 100vw"}
-          className="object-cover transition-transform duration-300 group-hover:scale-105"
+          className="object-cover transition-transform duration-500 ease-out group-hover:scale-105"
         />
 
         {!isCompact ? (
@@ -229,6 +231,7 @@ export function ExperienceCard({
           </p>
         ) : null}
       </div>
-    </article>
+      </article>
+    </ScrollReveal>
   );
 }

@@ -700,6 +700,7 @@ export interface WeatherContextResponse {
   longitude: number;
   observed_at: string | null;
   timezone: string | null;
+  timezone_offset_seconds: number | null;
   temperature_c: number | null;
   feels_like_c: number | null;
   humidity: number | null;
@@ -722,6 +723,7 @@ export interface WeatherForecastEntry {
   longitude: number;
   forecast_at: string | null;
   timezone: string | null;
+  timezone_offset_seconds: number | null;
   temperature_c: number | null;
   feels_like_c: number | null;
   humidity: number | null;
@@ -736,6 +738,34 @@ export interface WeatherForecastEntry {
   context_status: ContextStatus;
   fetched_at: string;
   expires_at: string;
+}
+
+export interface ItineraryWeatherAdvisory {
+  item_id: string;
+  title: string;
+  planned_start: string;
+  planned_end: string;
+  latitude: number | null;
+  longitude: number | null;
+  forecast_at: string | null;
+  checked_at: string;
+  check_basis: "PLANNED_FORECAST" | "NEAR_TIME_CURRENT" | "CURRENT_AT_LOCATION" | "UNAVAILABLE";
+  status: "GOOD" | "CAUTION" | "UNSUITABLE" | "UNKNOWN" | "CURRENT";
+  source: WeatherSource;
+  condition: string | null;
+  temperature_c: number | null;
+  precipitation_probability: number | null;
+  precipitation_amount: number | null;
+  wind_speed: number | null;
+  severe_alert: boolean | null;
+  reasons: string[];
+  message: string;
+}
+
+export interface ItineraryWeatherResponse {
+  itinerary_id: string;
+  generated_at: string;
+  advisories: ItineraryWeatherAdvisory[];
 }
 
 export type EventStatus = "SCHEDULED" | "RESCHEDULED" | "CANCELLED" | "POSTPONED" | "UNKNOWN";

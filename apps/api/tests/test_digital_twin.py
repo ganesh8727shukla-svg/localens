@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from src.adapters.ai import LIVE_SYSTEM_INSTRUCTION
+from src.adapters.errors import AdapterUnavailableError
 from src.adapters.weather import MockWeatherAdapter
 from src.core.context import get_weather_adapter
 from src.models.itinerary import Itinerary
@@ -111,6 +112,9 @@ def test_simulation_is_owned_read_only_and_marks_hypothetical_inputs(
     result = response.json()
     assert [stop["sequence"] for stop in result["scenario"]["stops"]] == [1, 2]
     assert all(weather["status"] == "HYPOTHETICAL" for weather in result["scenario"]["weather"])
+    assert len(result["scenario"]["current_weather"]) == len(item_ids)
+    assert all(weather["context_kind"] == "CURRENT" for weather in result["scenario"]["current_weather"])
+    assert all(weather["status"] == "MOCK" for weather in result["scenario"]["current_weather"])
     assert result["scenario"]["social"]["status"] == "HYPOTHETICAL"
     assert result["scenario"]["social"]["clusters"][0]["status"] == "HYPOTHETICAL"
     assert result["scenario"]["routes"][0]["scenario_status"] == "LIMITED"
@@ -150,6 +154,64 @@ def test_nugen_interpretation_cannot_override_deterministic_impacts(
         for impact in result["impacts"]
         if impact["item_id"] == item_ids[0]
     )
+
+
+def test_nugen_failure_keeps_deterministic_preview_available(
+    discovery_client, session_factory, discovery_dataset, monkeypatch
+) -> None:
+    class UnavailableProvider:
+        async def summarize(self, facts):
+            raise AdapterUnavailableError("Nugen is unavailable.")
+
+    monkeypatch.setattr(
+        "src.api.v1.digital_twin.get_domain_intelligence_provider",
+        lambda settings: UnavailableProvider(),
+    )
+    owner = register_traveler(discovery_client, "digital-twin-nugen-offline@example.com")
+    itinerary_id, item_ids = _create_itinerary(
+        session_factory, owner["traveler"]["id"], discovery_dataset["near_experience_id"]
+    )
+    response = discovery_client.post(
+        f"/api/v1/digital-twin/itineraries/{itinerary_id}/simulate",
+        headers=auth_header(owner),
+        json={"experience_overrides": [{"item_id": item_ids[0], "condition": "unavailable"}]},
+    )
+
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["delta"]["affected_stop_count"] == 1
+    assert result["domain_intelligence"]["status"] == "UNAVAILABLE"
+    assert "The deterministic preview remains available" in result["domain_intelligence"]["summary"]
+
+
+def test_nugen_404_is_reported_without_claiming_which_configuration_is_wrong(
+    discovery_client, session_factory, discovery_dataset, monkeypatch
+) -> None:
+    class MissingEndpointProvider:
+        async def summarize(self, facts):
+            raise AdapterUnavailableError("Nugen returned HTTP 404 for the configured endpoint.")
+
+    monkeypatch.setattr(
+        "src.api.v1.digital_twin.get_domain_intelligence_provider",
+        lambda settings: MissingEndpointProvider(),
+    )
+    owner = register_traveler(discovery_client, "digital-twin-nugen-404@example.com")
+    itinerary_id, item_ids = _create_itinerary(
+        session_factory, owner["traveler"]["id"], discovery_dataset["near_experience_id"]
+    )
+    response = discovery_client.post(
+        f"/api/v1/digital-twin/itineraries/{itinerary_id}/simulate",
+        headers=auth_header(owner),
+        json={"experience_overrides": [{"item_id": item_ids[0], "condition": "unavailable"}]},
+    )
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["domain_intelligence"]["status"] == "UNAVAILABLE"
+    assert result["domain_intelligence"]["summary"].startswith(
+        "Nugen returned HTTP 404 for the configured endpoint."
+    )
+    assert "The deterministic preview remains available" in result["domain_intelligence"]["summary"]
+    assert result["delta"]["affected_stop_count"] == 1
 
 
 def test_simulation_cannot_read_another_travelers_itinerary(

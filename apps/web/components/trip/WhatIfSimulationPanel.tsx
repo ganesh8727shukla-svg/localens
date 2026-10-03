@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { AlertTriangle, CloudRain, Download, GitCompare, LoaderCircle } from "lucide-react";
 import { ApiError } from "@/lib/api/client";
 import { applyItineraryWhatIf, simulateItineraryWhatIf } from "@/lib/api/digitalTwin";
@@ -113,9 +114,10 @@ export function WhatIfSimulationPanel({ itinerary, onApplied, onResult, initialW
 
   const targetStop = locatedStops.find((stop) => stop.id === socialTargetId);
   const routeTarget = locatedStops.find((stop) => stop.id === routeTargetId);
-  const actionableImpact = result?.impacts.some(
+  const actionableImpact = (result?.delta.affected_stop_count ?? 0) > 0 && (result?.impacts.some(
     (impact) => impact.affected && (impact.category === "weather" || impact.category === "experience"),
-  ) ?? false;
+  ) ?? false);
+  const requestedUnavailableStop = result?.impacts.some((impact) => impact.reason_codes.includes("USER_ASSUMED_UNAVAILABLE")) ?? false;
   const scenarioAffectedIds = useMemo(() => result?.impacts
     .filter((impact) => impact.item_id && (impact.affected || impact.reason_codes.includes("HYPOTHETICAL_SOCIAL_CONTEXT")))
     .map((impact) => impact.item_id as string) ?? [], [result]);
@@ -266,7 +268,7 @@ export function WhatIfSimulationPanel({ itinerary, onApplied, onResult, initialW
           {routeKind === "congestion" ? <label className="flex min-w-0 flex-col gap-1.5 text-xs font-medium text-ink-muted">Assumed delay (minutes)
             <input className="h-10 w-full min-w-0 rounded-xl border border-line-strong bg-surface-raised px-3 text-sm text-ink" type="number" min={0} max={240} value={delayMinutes} onChange={(event) => setDelayMinutes(Number(event.target.value))} />
           </label> : null}
-          <p className="text-xs leading-5 text-ink-subtle">Closures are not sent to OSRM; no alternate route is fabricated.</p>
+          <p className="text-xs leading-5 text-ink-subtle">For disruption assumptions, the preview can show actual OSRM route options when available. OSRM does not receive the assumed closure, so an option is not verified to avoid it.</p>
         </fieldset>
 
         <fieldset className="min-w-0 space-y-2 rounded-2xl border border-line bg-surface p-3.5">
@@ -348,7 +350,7 @@ export function WhatIfSimulationPanel({ itinerary, onApplied, onResult, initialW
         {result.domain_intelligence ? <section className="rounded-2xl border border-line bg-surface p-4" aria-label="Domain intelligence interpretation">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h4 className="text-sm font-semibold text-ink">Domain intelligence</h4>
-            <Badge tone="neutral">{result.domain_intelligence.provider === "nugen" ? `Nugen · ${result.domain_intelligence.model_id ?? "model"}` : "Local preview"}</Badge>
+            <Badge tone={result.domain_intelligence.status === "UNAVAILABLE" ? "warning" : "neutral"}>{result.domain_intelligence.status === "UNAVAILABLE" ? "Nugen unavailable · preview preserved" : result.domain_intelligence.provider === "nugen" ? `Nugen · ${result.domain_intelligence.model_id ?? "model"}` : "Local preview"}</Badge>
           </div>
           <p className="mt-2 text-sm leading-6 text-ink">{result.domain_intelligence.summary}</p>
           <dl className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -360,7 +362,6 @@ export function WhatIfSimulationPanel({ itinerary, onApplied, onResult, initialW
             {result.domain_intelligence.impacts.map((impact, index) => <li key={`${index}-${impact}`}>{impact}</li>)}
           </ul> : null}
           {result.domain_intelligence.uncertainty ? <p className="mt-3 text-xs leading-5 text-ink-muted"><span className="font-medium text-ink">Uncertainty: </span>{result.domain_intelligence.uncertainty}</p> : null}
-          {result.domain_intelligence.reason_codes.length > 0 ? <p className="mt-2 text-xs text-ink-muted"><span className="font-medium text-ink">Reason codes: </span>{result.domain_intelligence.reason_codes.join(", ")}</p> : null}
           {result.domain_intelligence.confidence_score !== null ? <p className="mt-2 text-xs text-ink-muted">Model-reported confidence score: {result.domain_intelligence.confidence_score} (advisory metadata, not a feasibility score)</p> : null}
           {result.domain_intelligence.finish_reason || result.domain_intelligence.usage ? <p className="mt-2 text-xs text-ink-muted">
             {result.domain_intelligence.finish_reason ? `Finish reason: ${result.domain_intelligence.finish_reason}` : null}
@@ -373,13 +374,15 @@ export function WhatIfSimulationPanel({ itinerary, onApplied, onResult, initialW
         <div className="grid gap-3 lg:grid-cols-2">
           <section className="rounded-2xl border border-line bg-surface p-4" aria-label="Weather comparison">
             <h4 className="text-sm font-semibold text-ink">Weather by stop</h4>
+            <p className="mt-1 text-xs leading-5 text-ink-muted">The hypothetical values are the shared scenario input. Current observations are fetched separately at each stop location and are not historical weather for the planned visit.</p>
             <ul className="mt-2 space-y-2">{result.scenario.weather.map((weather) => {
               const stop = stops.find((entry) => entry.id === weather.item_id);
               const baselineWeather = result.baseline.plan.weather.find((entry) => entry.item_id === weather.item_id);
+              const currentWeather = result.scenario.current_weather.find((entry) => entry.item_id === weather.item_id);
               return <li key={weather.item_id} className="rounded-xl bg-surface-sunken px-3 py-2.5 text-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2"><span className="font-medium text-ink">{stop?.title ?? "Itinerary stop"}</span><span className="text-xs text-ink-muted">{weather.condition ?? "Condition unavailable"} · {weatherStatusLabel(weather.status)}</span></div>
                 <dl className="mt-2 grid gap-x-3 gap-y-1 text-xs text-ink-muted sm:grid-cols-2">
-                  <div><dt className="inline font-medium text-ink">Temperature: </dt><dd className="inline">{evidenceValue(weather.temperature_c, "°C")}{baselineWeather ? ` (baseline ${evidenceValue(baselineWeather.temperature_c, "°C")})` : ""}</dd></div>
+                  <div><dt className="inline font-medium text-ink">Temperature: </dt><dd className="inline">{evidenceValue(weather.temperature_c, "°C")}{baselineWeather ? ` (planned forecast ${evidenceValue(baselineWeather.temperature_c, "°C")})` : ""}</dd></div>
                   <div><dt className="inline font-medium text-ink">Rain chance: </dt><dd className="inline">{evidenceValue(weather.precipitation_probability, "%")}</dd></div>
                   <div><dt className="inline font-medium text-ink">Precipitation: </dt><dd className="inline">{evidenceValue(weather.precipitation_amount, " mm")}</dd></div>
                   <div><dt className="inline font-medium text-ink">Wind: </dt><dd className="inline">{evidenceValue(weather.wind_speed, " m/s")}</dd></div>
@@ -387,7 +390,8 @@ export function WhatIfSimulationPanel({ itinerary, onApplied, onResult, initialW
                   <div><dt className="inline font-medium text-ink">Severe alert: </dt><dd className="inline">{weather.severe_alert === null ? "Unknown" : weather.severe_alert ? "Yes" : "No"}</dd></div>
                   <div><dt className="inline font-medium text-ink">Observed: </dt><dd className="inline">{timestampLabel(weather.observed_at)}</dd></div>
                   <div><dt className="inline font-medium text-ink">Evidence expires: </dt><dd className="inline">{timestampLabel(weather.expires_at)}</dd></div>
-                  {baselineWeather ? <div className="sm:col-span-2"><dt className="inline font-medium text-ink">Baseline: </dt><dd className="inline">{baselineWeather.condition ?? "Condition unavailable"} · {weatherStatusLabel(baselineWeather.status)} · {evidenceValue(baselineWeather.temperature_c, "°C")} · rain {evidenceValue(baselineWeather.precipitation_probability, "%")} · precipitation {evidenceValue(baselineWeather.precipitation_amount, " mm")} · wind {evidenceValue(baselineWeather.wind_speed, " m/s")} · visibility {evidenceValue(baselineWeather.visibility_km, " km")} · severe alert {baselineWeather.severe_alert === null ? "unknown" : baselineWeather.severe_alert ? "yes" : "no"} · observed {timestampLabel(baselineWeather.observed_at)} · expires {timestampLabel(baselineWeather.expires_at)}</dd></div> : null}
+                  {currentWeather ? <div className="sm:col-span-2 border-t border-line pt-2"><dt className="inline font-medium text-ink">Current at location: </dt><dd className="inline">{currentWeather.condition ?? "Condition unavailable"} · {weatherStatusLabel(currentWeather.status)} · {evidenceValue(currentWeather.temperature_c, "°C")} · rain {evidenceValue(currentWeather.precipitation_probability, "%")} · wind {evidenceValue(currentWeather.wind_speed, " m/s")} · visibility {evidenceValue(currentWeather.visibility_km, " km")} · observed {timestampLabel(currentWeather.observed_at)}</dd></div> : null}
+                  {baselineWeather ? <div className="sm:col-span-2"><dt className="inline font-medium text-ink">Planned-time forecast: </dt><dd className="inline">{baselineWeather.condition ?? "Condition unavailable"} · {weatherStatusLabel(baselineWeather.status)} · {evidenceValue(baselineWeather.temperature_c, "°C")} · rain {evidenceValue(baselineWeather.precipitation_probability, "%")} · precipitation {evidenceValue(baselineWeather.precipitation_amount, " mm")} · wind {evidenceValue(baselineWeather.wind_speed, " m/s")} · visibility {evidenceValue(baselineWeather.visibility_km, " km")} · severe alert {baselineWeather.severe_alert === null ? "unknown" : baselineWeather.severe_alert ? "yes" : "no"} · observed {timestampLabel(baselineWeather.observed_at)} · expires {timestampLabel(baselineWeather.expires_at)}</dd></div> : null}
                 </dl>
               </li>;
             })}</ul>
@@ -405,6 +409,13 @@ export function WhatIfSimulationPanel({ itinerary, onApplied, onResult, initialW
                 <p className="mt-1 text-xs text-ink-muted">{evidenceValue(route.distance_km, " km")} · planned {evidenceValue(route.duration_minutes, " min")} · scenario {evidenceValue(route.scenario_duration_minutes, " min")} · delta {evidenceValue(route.delta_minutes, " min")} · {route.geometry ? "geometry included" : "geometry unavailable"}</p>
                 {baselineRoute ? <p className="mt-1 text-xs text-ink-subtle">Baseline {baselineRoute.source} · {evidenceValue(baselineRoute.distance_km, " km")} · {evidenceValue(baselineRoute.duration_minutes, " min")} · {baselineRoute.scenario_status.replaceAll("_", " ")}{baselineRoute.explanation ? ` · ${baselineRoute.explanation}` : ""}</p> : <p className="mt-1 text-xs text-ink-subtle">No baseline route evidence for this leg.</p>}
                 {route.explanation ? <p className="mt-1 text-xs text-ink-subtle">{route.explanation}</p> : null}
+                {route.alternatives.length ? <div className="mt-3 space-y-2 border-t border-line pt-3">
+                  <p className="text-xs font-semibold text-ink">OSRM route options</p>
+                  {route.alternatives.map((option, index) => <p key={`${index}:${option.distance_km}:${option.duration_minutes}`} className="rounded-lg border border-highlight/20 bg-surface px-2.5 py-2 text-xs text-ink-muted">
+                    Option {index + 1} · {option.distance_km.toFixed(1)} km · {Math.round(option.duration_minutes)} min · real OSRM geometry
+                  </p>)}
+                  <p className="text-xs leading-5 text-warning">These options do not account for the assumed closure or disruption. Confirm local conditions before selecting one.</p>
+                </div> : null}
               </li>;
             })}</ul> : <p className="mt-2 text-sm text-ink-muted">No consecutive verified route legs are available.</p>}
           </section>
@@ -453,11 +464,18 @@ export function WhatIfSimulationPanel({ itinerary, onApplied, onResult, initialW
           <h4 className="text-sm font-semibold text-ink">Feasible alternatives from discovery</h4>
           <ul className="mt-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">{result.alternatives.map((alternative) => <li key={`${alternative.for_item_id}:${alternative.experience_id}`} className="rounded-xl bg-surface-sunken px-3 py-2 text-sm">
             <p className="font-medium text-ink">{alternative.title}</p>
-            <p className="mt-1 text-xs text-ink-muted">{alternative.category} · {alternative.environmental_type} · {alternative.weather_suitability.replaceAll("WEATHER_", "").toLowerCase().replaceAll("_", " ")}</p>
+            <p className="mt-1 text-xs text-ink-muted">{alternative.category} · {alternative.environmental_type} · local forecast suitability {alternative.weather_suitability.replaceAll("WEATHER_", "").toLowerCase().replaceAll("_", " ")}</p>
+            <p className="mt-1 text-xs text-ink-muted">Weather at this alternative · {alternative.weather_condition ?? "condition unavailable"} · {weatherStatusLabel(alternative.weather_status)} · {evidenceValue(alternative.weather_temperature_c, "°C")} · rain {evidenceValue(alternative.weather_precipitation_probability, "%")} · {evidenceValue(alternative.weather_precipitation_amount, " mm")} precipitation · wind {evidenceValue(alternative.weather_wind_speed, " m/s")}</p>
+            <p className="mt-1 text-xs text-ink-subtle">Forecast time {timestampLabel(alternative.weather_at)}. Local weather is evidence for this candidate location and does not confirm provider availability.</p>
             <p className="mt-1 text-xs text-ink-subtle">Ranking score {alternative.ranking_score.toFixed(3)} · for stop {stops.find((stop) => stop.id === alternative.for_item_id)?.title ?? alternative.for_item_id}</p>
             {alternative.is_synthetic ? <Badge className="mt-2" tone="warning">Development catalog entry</Badge> : null}
           </li>)}</ul>
-        </section> : <p className="rounded-xl bg-surface-sunken px-3.5 py-3 text-sm text-ink-muted" role="status">No alternatives were returned because the deterministic preview found no affected stop that needs replacing.</p>}
+        </section> : <div className="rounded-xl bg-surface-sunken px-3.5 py-3 text-sm text-ink-muted" role="status">
+          {requestedUnavailableStop && result.delta.affected_stop_count === 0 ? <>
+            <p>The unavailable assumption targets a completed or in-progress stop, so the backend correctly kept the saved itinerary unchanged. Select an upcoming itinerary to get feasible replacements ranked from the existing catalog.</p>
+            <Link href="/trip" className="mt-2 inline-flex font-semibold text-accent hover:underline">Compose an upcoming itinerary from existing experiences</Link>
+          </> : <p>No feasible alternatives were returned for the affected future stops. The backend will not relax opening hours, availability, budget, or travel constraints to invent a replacement.</p>}
+        </div>}
 
         <section className="rounded-2xl border border-line bg-surface p-4" aria-label="Scenario impact details">
           <h4 className="text-sm font-semibold text-ink">Impact details</h4>
@@ -476,7 +494,7 @@ export function WhatIfSimulationPanel({ itinerary, onApplied, onResult, initialW
           <div className="mt-3 flex flex-wrap gap-2"><Button type="button" size="sm" onClick={confirmApplySimulation} loading={busy}>Confirm apply</Button><Button type="button" size="sm" variant="outline" onClick={() => setConfirmApply(false)} disabled={busy}>Keep preview</Button></div>
         </div> : result.impacts.length ? <div className="flex flex-wrap items-center gap-2">
           <Button type="button" size="sm" variant="secondary" onClick={() => setConfirmApply(true)} disabled={!actionableImpact || busy}>Apply through replanning</Button>
-          {!actionableImpact ? <p className="text-xs text-ink-subtle">These route or social assumptions are advisory; they cannot directly change itinerary stops.</p> : <p className="text-xs text-ink-subtle">Review the changes before applying. The preview is temporary.</p>}
+          {!actionableImpact ? <p className="text-xs text-ink-subtle">{requestedUnavailableStop ? "There are no future flexible stops to replace. Past and in-progress stops cannot be replanned." : "Route and social assumptions are advisory; they cannot directly change itinerary stops."}</p> : <p className="text-xs text-ink-subtle">Review the changes before applying. The preview is temporary.</p>}
         </div> : null}
         {busy ? <span className="sr-only" role="status"><LoaderCircle className="size-4 animate-spin" aria-hidden="true" />Processing simulation</span> : null}
         {scenarioAffectedIds.length ? <p className="sr-only">Scenario-affected map stops are highlighted: {scenarioAffectedIds.map((id) => stops.find((stop) => stop.id === id)?.title ?? id).join(", ")}.</p> : null}

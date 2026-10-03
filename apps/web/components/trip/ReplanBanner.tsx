@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/Button";
  */
 export function ReplanBanner() {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-transparent bg-pastel-sky/45 px-4 py-3.5 shadow-soft">
+    <div className="porcelain-card flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-line bg-pastel-sky/30 px-4 py-3.5 shadow-soft">
       <p className="text-sm leading-6 text-ink">
         <span className="font-medium">Plan changed?</span> Update your time,
         budget, or preferences and we&apos;ll re-check the plan.

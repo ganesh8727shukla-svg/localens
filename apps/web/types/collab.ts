@@ -50,7 +50,8 @@ export interface CollabRecommendation {
   group_objective_score: number;
   member_satisfaction: Record<string, number>;
   matched_preferences: string[];
-  hard_constraint_status: "FEASIBLE";
+  hard_constraint_status: "FEASIBLE" | "UNKNOWN";
+  schedule_status: "VERIFIED" | "NEEDS_CONFIRMATION";
 }
 
 export interface CollabRecommendationResponse {

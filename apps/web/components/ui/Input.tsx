@@ -33,7 +33,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           aria-invalid={Boolean(errorMessage) || undefined}
           className={cn(
             "h-11 w-full rounded-[1rem] border border-line-strong bg-surface-raised px-4 text-sm text-ink placeholder:text-ink-subtle",
-            "transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+            "transition-[border-color,box-shadow,background-color] duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
             "disabled:cursor-not-allowed disabled:opacity-60",
             errorMessage && "border-danger",
             className,
@@ -82,7 +82,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
           id={areaId}
           className={cn(
             "min-h-24 w-full rounded-[1rem] border border-line-strong bg-surface-raised px-4 py-3 text-sm text-ink placeholder:text-ink-subtle",
-            "transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+            "transition-[border-color,box-shadow,background-color] duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
             "disabled:cursor-not-allowed disabled:opacity-60",
             className,
           )}

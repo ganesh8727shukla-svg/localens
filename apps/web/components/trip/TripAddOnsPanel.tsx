@@ -9,8 +9,19 @@ import type { ApiExperienceSummary, ApiItinerary } from "@/types/api";
 
 type FocusPoint = { latitude: number; longitude: number } | null;
 
+function scheduleTail(itinerary: ApiItinerary): string | undefined {
+  const ends = [
+    ...itinerary.items.map((item) => item.planned_end),
+    ...(itinerary.custom_activities ?? []).map((activity) => activity.planned_end),
+  ].filter((value) => Number.isFinite(Date.parse(value)));
+  return ends.sort((first, second) => Date.parse(first) - Date.parse(second)).at(-1);
+}
+
 export function TripAddOnsPanel({
   mode,
+  heading = "Local add-ons",
+  intro,
+  radiusKm = 10,
   city = null,
   locality = null,
   origin = null,
@@ -20,6 +31,9 @@ export function TripAddOnsPanel({
   onItineraryUpdated,
 }: {
   mode: "draft" | "saved";
+  heading?: string;
+  intro?: string;
+  radiusKm?: number;
   city?: string | null;
   locality?: string | null;
   origin?: FocusPoint;
@@ -49,7 +63,7 @@ export function TripAddOnsPanel({
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const areaName = locality ?? city;
-  const searchKey = JSON.stringify({ focusLatitude, focusLongitude, city, locality, itineraryId: itinerary?.id, existingIdKey });
+  const searchKey = JSON.stringify({ focusLatitude, focusLongitude, city, locality, itineraryId: itinerary?.id, existingIdKey, radiusKm });
   const status = !hasSearchArea ? "idle" : result?.key === searchKey ? result.status : "loading";
   const experiences = result?.key === searchKey ? result.items : [];
 
@@ -57,7 +71,7 @@ export function TripAddOnsPanel({
     if (!hasSearchArea) return;
     const controller = new AbortController();
     const filters = focusLatitude != null && focusLongitude != null
-      ? { lat: focusLatitude, lng: focusLongitude, radius_km: 10, sort: "distance" as const }
+      ? { lat: focusLatitude, lng: focusLongitude, radius_km: radiusKm, sort: "distance" as const }
       : { city: city ?? undefined, locality: locality ?? undefined, sort: "relevance" as const };
     listExperiences({ ...filters, is_synthetic: false, limit: 24, offset: 0 }, controller.signal)
       .then((response) => {
@@ -74,7 +88,7 @@ export function TripAddOnsPanel({
         if (!controller.signal.aborted) setResult({ key: searchKey, status: "error", items: [] });
       });
     return () => controller.abort();
-  }, [hasSearchArea, focusLatitude, focusLongitude, city, locality, itinerary?.id, existingIdKey, searchKey]);
+  }, [hasSearchArea, focusLatitude, focusLongitude, city, locality, itinerary?.id, existingIdKey, radiusKm, searchKey]);
 
   function toggle(experience: ApiExperienceSummary) {
     setMessage(null);
@@ -95,7 +109,10 @@ export function TripAddOnsPanel({
     let addedCount = 0;
     try {
       for (const experienceId of selectedAddOnIds) {
-        const result = await addItineraryItem(currentItinerary.id, { experience_id: experienceId });
+        const result = await addItineraryItem(currentItinerary.id, {
+          experience_id: experienceId,
+          planned_start: scheduleTail(currentItinerary),
+        });
         if (isCompositionFailure(result)) {
           setMessage(addedCount
             ? `Added ${addedCount} stop${addedCount === 1 ? "" : "s"}. The next stop did not fit: ${result.message}`
@@ -121,11 +138,13 @@ export function TripAddOnsPanel({
   const canEditSavedPlan = itinerary && !["CANCELLED", "COMPLETED"].includes(itinerary.status);
 
   return (
-    <section className="space-y-3 rounded-2xl border border-line bg-surface-raised p-4" aria-label="Local itinerary add-ons">
+    <section className="space-y-3 rounded-2xl border border-line bg-surface-raised p-4" aria-label={heading}>
       <div>
-        <h3 className="font-semibold text-ink">Local add-ons</h3>
+        <h3 className="font-semibold text-ink">{heading}</h3>
         <p className="mt-1 text-xs leading-5 text-ink-muted">
-          {focus ? "Compact nearby highlights within about 10 km of your first stop." : areaName ? `Compact catalog highlights for ${areaName}.` : "Compact area highlights with a short local USP."}
+          {intro ?? (focus
+            ? `Nearby catalog highlights within about ${radiusKm} km of ${origin ? "this stop" : "your first stop"}.`
+            : areaName ? `Compact catalog highlights for ${areaName}.` : "Compact area highlights with a short local USP.")}
         </p>
       </div>
 

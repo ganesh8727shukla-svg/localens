@@ -48,12 +48,14 @@ const simulation = {
     plan: {
       stops: [{ item_id: "item-1", experience_id: "exp-1", sequence: 1, title: "Museum visit", planned_start: "2026-10-01T10:00:00+05:30", planned_end: "2026-10-01T11:00:00+05:30", state: "ACTIVE", locked: false, latitude: 18.93, longitude: 72.83, environmental_type: "indoor", weather_sensitivity: "low", weather_policy: "normal", provider_verification_status: "verified", is_synthetic: false }],
       weather: [],
+      current_weather: [],
       social: { status: "NOT_REQUESTED", queried_location: null, generated_at: null, clusters: [], message: null },
       routes: [],
     },
   },
   scenario: {
-    weather: [],
+    weather: [{ item_id: "item-1", condition: "Hypothetical heavy rain", temperature_c: 23, precipitation_probability: 85, precipitation_amount: 8, wind_speed: 2, visibility_km: 10, severe_alert: false, status: "HYPOTHETICAL", context_kind: "HYPOTHETICAL", observed_at: "2026-09-27T12:00:00Z", expires_at: null }],
+    current_weather: [{ item_id: "item-1", condition: "Clear", temperature_c: 29, precipitation_probability: 0, precipitation_amount: 0, wind_speed: 2.5, visibility_km: 10, severe_alert: false, status: "LIVE", context_kind: "CURRENT", observed_at: "2026-09-27T12:00:00Z", expires_at: "2026-09-27T12:15:00Z" }],
     social: { status: "NOT_REQUESTED", queried_location: null, generated_at: null, clusters: [], message: null },
     routes: [],
     stops: [{ item_id: "item-1", experience_id: "exp-1", sequence: 1, title: "Museum visit", planned_start: "2026-10-01T10:00:00+05:30", planned_end: "2026-10-01T11:00:00+05:30", state: "ACTIVE", locked: false, latitude: 18.93, longitude: 72.83, environmental_type: "indoor", weather_sensitivity: "low", weather_policy: "normal", provider_verification_status: "verified", is_synthetic: false }],
@@ -111,6 +113,8 @@ describe("WhatIfSimulationPanel", () => {
       button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
+    expect(container.textContent).toContain("The hypothetical values are the shared scenario input.");
+    expect(container.textContent).toContain("Current at location: Clear");
     expect(simulateMock).toHaveBeenCalledWith("trip-1", expect.objectContaining({
       include_recent_social_context: false,
       horizon_hours: 72,

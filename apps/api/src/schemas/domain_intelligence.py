@@ -24,6 +24,7 @@ class DomainIntelligenceWeather(BaseModel):
 
     item_id: str = Field(max_length=36)
     status: str = Field(max_length=40)
+    context_kind: str = Field(default="FORECAST", max_length=20)
     condition: str | None = Field(default=None, max_length=100)
     temperature_c: float | None = None
     precipitation_probability: float | None = None
@@ -81,6 +82,7 @@ class DomainIntelligenceResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     provider: Literal["mock", "nugen"] = "mock"
+    status: Literal["LOCAL_PREVIEW", "AVAILABLE", "UNAVAILABLE"] = "LOCAL_PREVIEW"
     summary: str
     notes: list[str] = Field(default_factory=list)
     # These are model-reported explanatory metadata only, never decisions.

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+import asyncio
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Literal, cast
 from uuid import uuid4
@@ -10,6 +11,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.adapters.errors import AdapterError
 from src.adapters.domain_intelligence import DomainIntelligenceProvider
 from src.adapters.embedding import EmbeddingAdapter
 from src.adapters.routing import RoutingAdapter
@@ -36,6 +38,7 @@ from src.schemas.digital_twin import (
     SimulationStatus,
     TwinPlanState,
     TwinRouteEvidence,
+    TwinRouteOption,
     TwinSocialCluster,
     TwinSocialEvidence,
     TwinStop,
@@ -49,6 +52,7 @@ from src.schemas.domain_intelligence import (
     DomainIntelligenceImpact,
     DomainIntelligenceInput,
     DomainIntelligenceRoute,
+    DomainIntelligenceResult,
     DomainIntelligenceStop,
     DomainIntelligenceWeather,
 )
@@ -113,6 +117,7 @@ class DigitalTwinService:
         created_at = datetime.now(UTC)
         snapshot_id = str(uuid4())
         baseline_weather = await self._load_weather(refs, scenario.horizon_hours, created_at)
+        current_weather = await self._load_current_weather(refs)
         baseline_routes = await self._load_routes(refs)
         baseline_social = TwinSocialEvidence(status="NOT_REQUESTED", clusters=[])
         warnings: list[str] = []
@@ -122,6 +127,7 @@ class DigitalTwinService:
         baseline_plan = TwinPlanState(
             stops=[self._to_stop(ref) for ref in refs],
             weather=baseline_weather,
+            current_weather=current_weather,
             social=baseline_social,
             routes=baseline_routes,
         )
@@ -159,6 +165,10 @@ class DigitalTwinService:
             )
             if self._is_future(ref, created_at):
                 affected_ids.append(ref.item_id)
+            else:
+                warnings.append(
+                    f"{ref.title} has already completed or is in progress. The deterministic replanner protects past and active stops."
+                )
 
         scenario_social = baseline_social
         if scenario.include_recent_social_context:
@@ -247,6 +257,11 @@ class DigitalTwinService:
             )
 
         scenario_routes = self._apply_route_scenario(baseline_routes, refs, scenario)
+        scenario_routes, route_options_unavailable = await self._attach_route_alternatives(
+            scenario_routes, baseline_routes, refs, scenario
+        )
+        if route_options_unavailable:
+            warnings.append("OSRM did not return an additional route option for this assumed disruption.")
         affected_route_count = sum(
             route.scenario_status not in ("UNCHANGED", "UNAVAILABLE") for route in scenario_routes
         )
@@ -259,8 +274,8 @@ class DigitalTwinService:
                     item_id=scenario.route.to_item_id,
                     reason_codes=[f"USER_ASSUMED_{scenario.route.kind.upper()}"],
                     explanation=(
-                        "Route condition is a traveler assumption. OSRM cannot validate the disruption "
-                        "or create an alternative route."
+                        "Route condition is a traveler assumption. Any OSRM options are real route geometries, "
+                        "but OSRM did not receive or verify the assumed disruption."
                         if scenario.route.kind in ("road_disruption", "temporary_closure", "walking_condition")
                         else "An assumed delay was added to the existing route estimate."
                     ),
@@ -276,13 +291,13 @@ class DigitalTwinService:
             traveler_id=traveler_id,
             refs=refs,
             impacted_item_ids=unique_affected,
-            weather_override=scenario.weather,
             now=created_at,
         )
 
         scenario_plan = TwinPlanState(
             stops=[self._to_stop(ref) for ref in refs],
             weather=scenario_weather,
+            current_weather=current_weather,
             social=scenario_social,
             routes=scenario_routes,
         )
@@ -320,7 +335,7 @@ class DigitalTwinService:
             scenario_description=scenario.description,
             impact_categories=[impact.category for impact in impacts if impact.affected],
             affected_item_ids=unique_affected,
-            weather_statuses=weather_statuses,
+            weather_statuses=weather_statuses + [entry.status for entry in current_weather],
             route_statuses=[route.scenario_status for route in scenario_routes],
             stops=[
                 DomainIntelligenceStop(
@@ -338,6 +353,7 @@ class DigitalTwinService:
                 DomainIntelligenceWeather(
                     item_id=weather.item_id,
                     status=weather.status,
+                    context_kind=weather.context_kind,
                     condition=weather.condition,
                     temperature_c=weather.temperature_c,
                     precipitation_probability=weather.precipitation_probability,
@@ -345,7 +361,7 @@ class DigitalTwinService:
                     wind_speed=weather.wind_speed,
                     severe_alert=weather.severe_alert,
                 )
-                for weather in scenario_plan.weather[:20]
+                for weather in [*scenario_plan.current_weather, *scenario_plan.weather][:20]
             ],
             routes=[
                 DomainIntelligenceRoute(
@@ -376,11 +392,32 @@ class DigitalTwinService:
             timezone="Asia/Kolkata",
             deterministic_summary=delta.summary,
         )
-        intelligence_result = await self._intelligence.summarize(facts)
+        try:
+            intelligence_result = await self._intelligence.summarize(facts)
+        except AdapterError as exc:
+            # Domain interpretation is optional. Preserve the deterministic
+            # simulation when Nugen is unavailable, and report that accurately.
+            provider_messages = {
+                "Nugen request timed out.",
+                "Nugen is unavailable.",
+                "Nugen is rate limited.",
+                "Nugen authentication failed.",
+                "Nugen returned HTTP 404 for the configured endpoint.",
+                "Nugen rejected the request format.",
+                "Nugen request failed.",
+                "Nugen returned a malformed response.",
+                "Nugen returned a malformed domain analysis.",
+            }
+            safe_reason = str(exc) if str(exc) in provider_messages else "Nugen service is unavailable."
+            intelligence_result = DomainIntelligenceResult(
+                provider="nugen",
+                status="UNAVAILABLE",
+                summary=f"{safe_reason} The deterministic preview remains available.",
+                notes=["No Nugen assessment was returned or fabricated."],
+            )
         warnings.extend(
             [
                 "Preview only: no itinerary data was changed.",
-                intelligence_result.summary,
                 *intelligence_result.notes,
             ]
         )
@@ -399,7 +436,7 @@ class DigitalTwinService:
             if warnings
             and any(
                 warning.startswith(
-                    ("Weather evidence", "Route geometry preview", "Weather preview", "Alternative discovery")
+                    ("Weather evidence", "Route geometry preview", "Weather preview", "Alternative discovery", "OSRM did not return")
                 )
                 for warning in warnings
             )
@@ -509,7 +546,6 @@ class DigitalTwinService:
         traveler_id: str,
         refs: list[_StopRef],
         impacted_item_ids: list[str],
-        weather_override: WeatherScenarioOverride | None,
         now: datetime,
     ) -> tuple[list[SimulationAlternative], bool]:
         """Use existing feasibility and personalized ranking for at most two flexible slots."""
@@ -519,6 +555,8 @@ class DigitalTwinService:
         existing_ids = {ref.experience_id for ref in refs if ref.experience_id}
         alternatives: list[SimulationAlternative] = []
         partial = len(impacted_item_ids) > 2
+        candidate_weather_cache: dict[tuple[float, float], WeatherContext | None] = {}
+        candidate_weather_lookups = 0
         for item_id in impacted_item_ids[:2]:
             ref = next((entry for entry in refs if entry.item_id == item_id), None)
             experience = ref.experience if ref else None
@@ -589,18 +627,33 @@ class DigitalTwinService:
                 candidate_experience = await ExperienceRepository(self._session).get_by_id(candidate.id)
                 if candidate_experience is None:
                     continue
-                suitability: WeatherSuitability = "WEATHER_UNKNOWN"
-                if weather_override is not None:
-                    candidate_ref = replace(
-                        ref,
-                        experience=candidate_experience,
-                        latitude=candidate_experience.location.latitude,
-                        longitude=candidate_experience.location.longitude,
-                    )
-                    scenario_weather = self._weather_context_for_override(
-                        candidate_ref, weather_override.intensity, now
-                    )
-                    suitability = self._weather_impact.evaluate(candidate_experience, scenario_weather).status.value
+                candidate_location = candidate_experience.location
+                weather_key = (round(candidate_location.latitude, 3), round(candidate_location.longitude, 3))
+                if weather_key not in candidate_weather_cache:
+                    if candidate_weather_lookups >= _MAX_WEATHER_LOOKUPS:
+                        candidate_weather_cache[weather_key] = None
+                        partial = True
+                    else:
+                        candidate_weather_lookups += 1
+                        try:
+                            forecasts = await self._weather.get_forecast(
+                                candidate_location.latitude, candidate_location.longitude
+                            )
+                            candidate_weather_cache[weather_key] = self._nearest_forecast(forecasts, ref.planned_start)
+                        except Exception:
+                            candidate_weather_cache[weather_key] = None
+                            partial = True
+                candidate_weather = candidate_weather_cache[weather_key]
+                if candidate_weather is not None and candidate_weather.source != WeatherSource.UNAVAILABLE:
+                    suitability: WeatherSuitability = self._weather_impact.evaluate(
+                        candidate_experience, candidate_weather
+                    ).status.value
+                    weather_status: WeatherEvidenceStatus = cast(WeatherEvidenceStatus, candidate_weather.source.value)
+                    if candidate_weather.expires_at <= datetime.now(UTC):
+                        weather_status = "STALE"
+                else:
+                    suitability = "WEATHER_UNKNOWN"
+                    weather_status = "UNAVAILABLE"
                 alternatives.append(
                     SimulationAlternative(
                         for_item_id=item_id,
@@ -609,6 +662,17 @@ class DigitalTwinService:
                         category=candidate.category.name,
                         environmental_type=candidate_experience.environmental_type or "UNKNOWN",
                         weather_suitability=suitability,
+                        weather_status=weather_status,
+                        weather_condition=candidate_weather.condition if candidate_weather else None,
+                        weather_temperature_c=candidate_weather.temperature_c if candidate_weather else None,
+                        weather_precipitation_probability=(
+                            candidate_weather.precipitation_probability if candidate_weather else None
+                        ),
+                        weather_precipitation_amount=(
+                            candidate_weather.precipitation_amount if candidate_weather else None
+                        ),
+                        weather_wind_speed=candidate_weather.wind_speed if candidate_weather else None,
+                        weather_at=candidate_weather.observed_at if candidate_weather else None,
                         ranking_score=candidate.ranking_score,
                         is_synthetic=candidate.is_synthetic,
                     )
@@ -641,6 +705,40 @@ class DigitalTwinService:
         for ref in refs:
             if not any(entry.item_id == ref.item_id for entry in result):
                 result.append(TwinWeatherEvidence(item_id=ref.item_id, status="UNAVAILABLE"))
+        result.sort(key=lambda entry: next((r.sequence for r in refs if r.item_id == entry.item_id), 10**9))
+        return result
+
+    async def _load_current_weather(self, refs: list[_StopRef]) -> list[TwinWeatherEvidence]:
+        """Fetch bounded current observations separately from itinerary forecasts."""
+        distinct: dict[tuple[float, float], tuple[float, float, list[_StopRef]]] = {}
+        for ref in refs:
+            if ref.latitude is None or ref.longitude is None:
+                continue
+            key = (ref.latitude, ref.longitude)
+            if key not in distinct:
+                distinct[key] = (ref.latitude, ref.longitude, [])
+            distinct[key][2].append(ref)
+
+        selected = list(distinct.items())[:_MAX_WEATHER_LOOKUPS]
+
+        async def fetch_current(lat: float, lng: float) -> WeatherContext | None:
+            try:
+                return await self._weather.get_current(lat, lng)
+            except Exception:
+                return None
+
+        contexts = await asyncio.gather(
+            *(fetch_current(latitude, longitude) for _, (latitude, longitude, _) in selected)
+        )
+        result: list[TwinWeatherEvidence] = []
+        for ((_, _), (_, _, grouped_refs)), context in zip(selected, contexts, strict=True):
+            for ref in grouped_refs:
+                result.append(self._weather_evidence(ref.item_id, context, context_kind="CURRENT"))
+        for ref in refs:
+            if not any(entry.item_id == ref.item_id for entry in result):
+                result.append(
+                    TwinWeatherEvidence(item_id=ref.item_id, status="UNAVAILABLE", context_kind="UNKNOWN")
+                )
         result.sort(key=lambda entry: next((r.sequence for r in refs if r.item_id == entry.item_id), 10**9))
         return result
 
@@ -814,6 +912,74 @@ class DigitalTwinService:
             )
         return result
 
+    async def _attach_route_alternatives(
+        self,
+        scenario_routes: list[TwinRouteEvidence],
+        baseline_routes: list[TwinRouteEvidence],
+        refs: list[_StopRef],
+        scenario: WhatIfScenario,
+    ) -> tuple[list[TwinRouteEvidence], bool]:
+        """Fetch real OSRM options for a disrupted leg without claiming closure avoidance."""
+        target = scenario.route
+        if target is None or target.kind not in ("road_disruption", "temporary_closure"):
+            return scenario_routes, False
+
+        route = next((item for item in baseline_routes if item.to_item_id == target.to_item_id), None)
+        if route is None or route.source != "osrm":
+            return scenario_routes, True
+        origin = next((item for item in refs if item.item_id == route.from_item_id), None)
+        destination = next((item for item in refs if item.item_id == route.to_item_id), None)
+        if (
+            origin is None
+            or destination is None
+            or origin.latitude is None
+            or origin.longitude is None
+            or destination.latitude is None
+            or destination.longitude is None
+        ):
+            return scenario_routes, True
+
+        try:
+            options = await self._routing.get_route_alternatives(
+                (origin.latitude, origin.longitude),
+                (destination.latitude, destination.longitude),
+                profile="driving",
+            )
+        except Exception:
+            options = []
+        route_options = [
+            TwinRouteOption(
+                distance_km=option.distance_km,
+                duration_minutes=option.duration_minutes,
+                geometry=option.geometry,
+            )
+            for option in options[:3]
+            if option.source == "osrm"
+            and option.geometry is not None
+            and option.geometry.get("type") == "LineString"
+        ]
+        updated: list[TwinRouteEvidence] = []
+        found = False
+        for item in scenario_routes:
+            if item.from_item_id == route.from_item_id and item.to_item_id == route.to_item_id:
+                found = True
+                updated.append(
+                    item.model_copy(
+                        update={
+                            "alternatives": route_options,
+                            "explanation": (
+                                "Additional OSRM route options are shown. OSRM did not receive the hypothetical "
+                                "closure or disruption; verify local conditions before choosing one."
+                                if route_options
+                                else "OSRM returned no additional route option. The assumed disruption is not encoded."
+                            ),
+                        }
+                    )
+                )
+            else:
+                updated.append(item)
+        return updated, not found or not route_options
+
     @staticmethod
     def _to_stop(ref: _StopRef) -> TwinStop:
         exp = ref.experience
@@ -862,11 +1028,16 @@ class DigitalTwinService:
         )[0]
 
     @staticmethod
-    def _weather_evidence(item_id: str, context: WeatherContext | None) -> TwinWeatherEvidence:
+    def _weather_evidence(
+        item_id: str,
+        context: WeatherContext | None,
+        *,
+        context_kind: Literal["FORECAST", "CURRENT", "HYPOTHETICAL", "UNKNOWN"] = "FORECAST",
+    ) -> TwinWeatherEvidence:
         if context is None or context.source == WeatherSource.UNAVAILABLE:
-            return TwinWeatherEvidence(item_id=item_id, status="UNAVAILABLE")
+            return TwinWeatherEvidence(item_id=item_id, status="UNAVAILABLE", context_kind=context_kind)
         status = cast(WeatherEvidenceStatus, context.source.value)
-        if context.expires_at <= datetime.now(UTC):
+        if context.source != WeatherSource.MOCK and context.expires_at <= datetime.now(UTC):
             status = "STALE"
         return TwinWeatherEvidence(
             item_id=item_id,
@@ -878,6 +1049,7 @@ class DigitalTwinService:
             visibility_km=context.visibility_km,
             severe_alert=context.severe_alert,
             status=status,
+            context_kind=context_kind,
             observed_at=context.observed_at,
             expires_at=context.expires_at,
         )

@@ -67,6 +67,7 @@ class NugenDomainIntelligenceService:
             }
         return DomainIntelligenceResult(
             provider="nugen",
+            status="AVAILABLE",
             summary=analysis.analysis,
             impacts=analysis.impacts,
             suitability_assessment=analysis.suitability_assessment,

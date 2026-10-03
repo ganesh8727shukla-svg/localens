@@ -14,13 +14,14 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 
 const variantClasses: Record<Variant, string> = {
   primary:
-    "bg-primary text-primary-ink shadow-sm hover:brightness-110 active:scale-[0.98]",
+    "bg-primary text-primary-ink shadow-sm transition-all hover:-translate-y-0.5 hover:brightness-105 hover:shadow-md active:translate-y-0 active:scale-[0.98]",
   secondary:
-    "bg-pastel-mint text-ink hover:brightness-[0.98] active:scale-[0.98]",
+    "border border-pastel-mint/80 bg-pastel-mint/50 font-semibold text-ink shadow-sm transition-all hover:-translate-y-0.5 hover:bg-pastel-mint/70 hover:shadow-md active:translate-y-0 active:scale-[0.98]",
   outline:
-    "border border-line-strong bg-surface text-ink hover:bg-surface-sunken active:scale-[0.98]",
-  ghost: "text-ink hover:bg-surface-sunken active:scale-[0.98]",
-  danger: "bg-danger text-white hover:brightness-110 active:scale-[0.98]",
+    "border border-line-strong/80 bg-surface/90 text-ink shadow-sm transition-all hover:-translate-y-0.5 hover:bg-surface-sunken/60 hover:shadow-md active:translate-y-0 active:scale-[0.98]",
+  ghost: "text-ink transition-all hover:bg-surface-sunken/60 active:scale-[0.98]",
+  danger:
+    "bg-danger text-white shadow-sm transition-all hover:-translate-y-0.5 hover:brightness-105 hover:shadow-md active:translate-y-0 active:scale-[0.98]",
 };
 
 const sizeClasses: Record<Size, string> = {
@@ -47,7 +48,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       <button
         ref={ref}
         className={cn(
-          "inline-flex items-center justify-center font-medium transition duration-150",
+          "inline-flex items-center justify-center font-medium transition duration-200 ease-out",
           "disabled:cursor-not-allowed disabled:opacity-50",
           "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
           variantClasses[variant],

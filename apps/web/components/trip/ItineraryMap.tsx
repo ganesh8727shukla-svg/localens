@@ -20,8 +20,10 @@ interface ItineraryMapProps {
   selectedItemId: string | null;
   onSelectItem: (id: string) => void;
   scenarioAffectedItemIds?: string[];
+  scenarioRouteAlternativeGeometries?: GeoJSON.LineString[];
   showWeatherCard?: boolean;
   initialSocialVisible?: boolean;
+  initialNearbyVisible?: boolean;
   socialHeading?: string;
   useOwnedStopContext?: boolean;
 }
@@ -47,7 +49,10 @@ interface SocialState {
   error: boolean;
 }
 
-const NEARBY_CATEGORIES = ["restaurant", "cafe", "museum", "gallery", "park"];
+const NEARBY_CATEGORIES = [
+  "restaurant", "cafe", "museum", "gallery", "attraction", "market",
+  "park", "theatre", "library", "viewpoint", "arts_center",
+];
 const MAX_ROUTE_CACHE_ENTRIES = 100;
 const EMPTY_ROUTE_SEGMENTS: MapRouteSegment[] = [];
 const EMPTY_NEARBY: NearbyPOI[] = [];
@@ -172,7 +177,7 @@ function mapBoundsFromStops(stops: MapStop[], segments: MapRouteSegment[]) {
   );
 }
 
-export function ItineraryMap({ itinerary, selectedItemId, onSelectItem, scenarioAffectedItemIds = [], showWeatherCard = true, initialSocialVisible = false, socialHeading, useOwnedStopContext = false }: ItineraryMapProps) {
+export function ItineraryMap({ itinerary, selectedItemId, onSelectItem, scenarioAffectedItemIds = [], scenarioRouteAlternativeGeometries = [], showWeatherCard = true, initialSocialVisible = false, initialNearbyVisible = false, socialHeading, useOwnedStopContext = false }: ItineraryMapProps) {
   const stops = useMemo(() => buildItineraryMapStops(itinerary), [itinerary]);
   const routeLegs = useMemo(() => buildConsecutiveRouteLegs(itinerary), [itinerary]);
   const entries = useMemo(() => orderedTimelineEntries(itinerary), [itinerary]);
@@ -194,7 +199,7 @@ export function ItineraryMap({ itinerary, selectedItemId, onSelectItem, scenario
   const [routeState, setRouteState] = useState<RouteState>({ key: "", segments: [], unavailable: 0, loading: false });
   const [fitRequestId, setFitRequestId] = useState(stops.length ? 1 : 0);
   const [focusRequestId, setFocusRequestId] = useState(0);
-  const [nearbyVisible, setNearbyVisible] = useState(false);
+  const [nearbyVisible, setNearbyVisible] = useState(initialNearbyVisible);
   const [nearbyState, setNearbyState] = useState<NearbyState | null>(null);
   const [socialVisible, setSocialVisible] = useState(initialSocialVisible);
   const [socialTopicFilter, setSocialTopicFilter] = useState<SocialSignalTopic | "all">("all");
@@ -222,6 +227,8 @@ export function ItineraryMap({ itinerary, selectedItemId, onSelectItem, scenario
     : "";
   const selectedLatitude = selectedStop?.latitude ?? null;
   const selectedLongitude = selectedStop?.longitude ?? null;
+  const nearbyLoading = nearbyVisible && Boolean(selectedStop)
+    && (nearbyState?.key !== nearbyKey || nearbyState.loading);
   const nearbyResults = nearbyState?.key === nearbyKey ? nearbyState.items : EMPTY_NEARBY;
   const socialRequestKey = `${socialKey}:${socialTopicFilter}:${socialSinceHours}:${socialRefreshKey}`;
   const socialResponse = socialState?.key === socialRequestKey ? socialState.response : null;
@@ -340,25 +347,14 @@ export function ItineraryMap({ itinerary, selectedItemId, onSelectItem, scenario
     return () => controller.abort();
   }, [socialVisible, socialKey, socialRequestKey, selectedLatitude, selectedLongitude, selectedStop?.id, selectedStop?.kind, socialTopicFilter, socialSinceHours, useOwnedStopContext]);
 
-  function handleExploreNearby() {
-    if (!selectedStop || !nearbyKey) return;
-    if (nearbyVisible) {
-      setNearbyVisible(false);
-      return;
-    }
-    if (nearbyState?.key === nearbyKey) {
-      setNearbyVisible(true);
-      return;
-    }
-
+  useEffect(() => {
+    if (!nearbyVisible || !nearbyKey || selectedLatitude === null || selectedLongitude === null) return;
     nearbyControllerRef.current?.abort();
     const controller = new AbortController();
     nearbyControllerRef.current = controller;
-    setNearbyVisible(true);
-    setNearbyState({ key: nearbyKey, items: [], loading: true, error: false });
     void getNearbyPois(
-      { lat: selectedStop.latitude, lng: selectedStop.longitude },
-      500,
+      { lat: selectedLatitude, lng: selectedLongitude },
+      2000,
       NEARBY_CATEGORIES,
       controller.signal,
     )
@@ -372,6 +368,11 @@ export function ItineraryMap({ itinerary, selectedItemId, onSelectItem, scenario
           setNearbyState({ key: nearbyKey, items: [], loading: false, error: true });
         }
       });
+    return () => controller.abort();
+  }, [nearbyKey, nearbyVisible, selectedLatitude, selectedLongitude]);
+
+  function handleExploreNearby() {
+    if (selectedStop) setNearbyVisible((visible) => !visible);
   }
 
   function handleSelectAnnotation(id: string) {
@@ -417,9 +418,9 @@ export function ItineraryMap({ itinerary, selectedItemId, onSelectItem, scenario
           <Button id="trip-social-toggle" type="button" size="sm" variant={socialVisible ? "secondary" : "outline"} onClick={() => setSocialVisible((visible) => !visible)} disabled={!selectedStop} aria-pressed={socialVisible}>
             <MessageCircle className="size-4" aria-hidden="true" />{socialVisible ? "Hide social pulse" : "Social pulse"}
           </Button>
-          <Button type="button" size="sm" variant="outline" onClick={handleExploreNearby} disabled={!selectedStop} aria-pressed={nearbyVisible}>
+          <Button type="button" size="sm" variant={nearbyVisible ? "secondary" : "outline"} onClick={handleExploreNearby} disabled={!selectedStop} aria-pressed={nearbyVisible}>
             {nearbyVisible ? <X className="size-4" aria-hidden="true" /> : <Search className="size-4" aria-hidden="true" />}
-            {nearbyVisible ? "Hide nearby" : "Explore nearby"}
+            {nearbyVisible ? "Hide nearby places" : "Nearby places · 2 km"}
           </Button>
           <Button type="button" size="sm" variant="ghost" onClick={handleFocusSelected} disabled={!selectedStop}>
             <LocateFixed className="size-4" aria-hidden="true" />Selected stop
@@ -432,6 +433,7 @@ export function ItineraryMap({ itinerary, selectedItemId, onSelectItem, scenario
           annotations={annotations}
           onSelectAnnotation={handleSelectAnnotation}
           routeGeometries={routeGeometries}
+          routeAlternativeGeometries={scenarioRouteAlternativeGeometries}
           fitBounds={fitBounds}
           fitBoundsRequestId={fitRequestId}
           focusCoordinate={focusCoordinate}
@@ -485,6 +487,7 @@ export function ItineraryMap({ itinerary, selectedItemId, onSelectItem, scenario
         <summary className="cursor-pointer font-medium text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">Map legend</summary>
         <ul className="mt-2 flex flex-wrap gap-x-5 gap-y-2 text-xs">
           {routeGeometries.length ? <li className="inline-flex items-center gap-2"><span className="h-0.5 w-5 bg-accent" aria-hidden="true" />Planned route · OSRM</li> : null}
+          {scenarioRouteAlternativeGeometries.length ? <li className="inline-flex items-center gap-2"><span className="h-0.5 w-5 border-t-2 border-dashed border-highlight" aria-hidden="true" />OSRM option · disruption not verified</li> : null}
           <li className="inline-flex items-center gap-2"><span className="flex size-5 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-ink" aria-hidden="true">1</span>Itinerary stop</li>
           <li className="inline-flex items-center gap-2"><span className="size-3 rounded-full bg-accent" aria-hidden="true" />Selected stop</li>
           {stops.some((stop) => stop.itemState === "AFFECTED") ? <li className="inline-flex items-center gap-2"><span className="size-3 rounded-full bg-highlight" aria-hidden="true" />Affected stop · needs review</li> : null}
@@ -569,13 +572,14 @@ export function ItineraryMap({ itinerary, selectedItemId, onSelectItem, scenario
         </section>
       ) : null}
 
-      {nearbyVisible && nearbyState?.key === nearbyKey ? (
+      {nearbyVisible ? (
         <section className="rounded-2xl border border-line bg-surface p-4" aria-label="Nearby places">
-          <h3 className="text-sm font-semibold text-ink">Nearby {selectedStop?.title ? `· ${selectedStop.title}` : "places"}</h3>
-          {nearbyState.loading ? <p className="mt-2 text-sm text-ink-muted" role="status">Searching nearby places…</p> : null}
-          {nearbyState.error ? <p className="mt-2 text-sm text-ink-muted" role="status">Nearby places are unavailable right now. Try again when you want to explore this stop.</p> : null}
-          {!nearbyState.loading && !nearbyState.error && nearbyState.items.length === 0 ? <p className="mt-2 text-sm text-ink-muted">No nearby places were returned for the selected categories.</p> : null}
-          {nearbyState.items.length ? (
+          <h3 className="text-sm font-semibold text-ink">OpenStreetMap places {selectedStop?.title ? `· near ${selectedStop.title}` : "near selected stop"}</h3>
+          <p className="mt-1 text-xs text-ink-subtle">Verified map features within 2 km. These are points of interest, not social reports or itinerary bookings.</p>
+          {nearbyLoading ? <p className="mt-2 text-sm text-ink-muted" role="status">Searching OpenStreetMap for nearby places…</p> : null}
+          {nearbyState?.key === nearbyKey && nearbyState.error ? <p className="mt-2 text-sm text-ink-muted" role="status">OpenStreetMap nearby-place data is unavailable right now. Try again later.</p> : null}
+          {nearbyState?.key === nearbyKey && !nearbyState.loading && !nearbyState.error && nearbyState.items.length === 0 ? <p className="mt-2 text-sm text-ink-muted">No nearby places were returned for the selected categories.</p> : null}
+          {nearbyState?.key === nearbyKey && nearbyState.items.length ? (
             <ul className="mt-2 grid gap-2 sm:grid-cols-2">
               {nearbyState.items.map((poi) => (
                 <li key={`${poi.osm_type}:${poi.osm_id}`} className="rounded-xl bg-surface-sunken px-3 py-2 text-sm">

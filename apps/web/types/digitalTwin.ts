@@ -49,6 +49,7 @@ export interface TwinWeatherEvidence {
   visibility_km: number | null;
   severe_alert: boolean | null;
   status: "LIVE" | "CACHED" | "STALE" | "MOCK" | "UNAVAILABLE" | "HYPOTHETICAL";
+  context_kind: "FORECAST" | "CURRENT" | "HYPOTHETICAL" | "UNKNOWN";
   observed_at: string | null;
   expires_at: string | null;
 }
@@ -84,6 +85,12 @@ export interface TwinRouteEvidence {
   scenario_duration_minutes: number | null;
   delta_minutes: number | null;
   explanation: string | null;
+  alternatives: {
+    distance_km: number;
+    duration_minutes: number;
+    geometry: GeoJSON.LineString;
+    source: "osrm";
+  }[];
 }
 
 export interface TwinStop {
@@ -107,6 +114,7 @@ export interface TwinStop {
 export interface TwinPlanState {
   stops: TwinStop[];
   weather: TwinWeatherEvidence[];
+  current_weather: TwinWeatherEvidence[];
   social: TwinSocialEvidence;
   routes: TwinRouteEvidence[];
 }
@@ -157,12 +165,20 @@ export interface SimulationResult {
     category: string;
     environmental_type: string;
     weather_suitability: "WEATHER_GOOD" | "WEATHER_CAUTION" | "WEATHER_UNSUITABLE" | "WEATHER_UNKNOWN";
+    weather_status: "LIVE" | "CACHED" | "STALE" | "MOCK" | "UNAVAILABLE" | "HYPOTHETICAL";
+    weather_condition: string | null;
+    weather_temperature_c: number | null;
+    weather_precipitation_probability: number | null;
+    weather_precipitation_amount: number | null;
+    weather_wind_speed: number | null;
+    weather_at: string | null;
     ranking_score: number;
     is_synthetic: boolean;
   }[];
   warnings: string[];
   domain_intelligence: {
     provider: "mock" | "nugen";
+    status: "LOCAL_PREVIEW" | "AVAILABLE" | "UNAVAILABLE";
     summary: string;
     notes: string[];
     impacts: string[];

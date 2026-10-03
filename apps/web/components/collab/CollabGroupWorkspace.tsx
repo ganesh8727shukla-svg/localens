@@ -196,8 +196,11 @@ export function CollabGroupWorkspace({ groupId }: { groupId: string }) {
 
   useEffect(() => {
     const controller = new AbortController();
-    void load(controller.signal);
-    return () => controller.abort();
+    const timer = window.setTimeout(() => void load(controller.signal), 0);
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
   }, [load, refreshKey]);
 
   useEffect(() => {
@@ -360,11 +363,11 @@ export function CollabGroupWorkspace({ groupId }: { groupId: string }) {
 
       <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.8fr)] xl:items-start">
         <div className="space-y-8">
-          <Section title="Real recommendations" description="Only active, non-synthetic experience, provider, and location records are considered. Hard constraints run before group ranking.">
+          <Section title="Group recommendations" description="Active real places are ranked against shared preferences and hard limits. Unknown venue hours or capacity stay clearly marked for confirmation.">
             <Card><CardBody className="space-y-4 p-5">
               <form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); setActiveQuery(search.trim()); }}><Input aria-label="Search group recommendations" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search experiences" /><Button type="submit" size="sm">Search</Button></form>
               {recommendationWarnings.map((warning) => <p key={warning} className="rounded-xl bg-warning-soft px-3 py-2 text-xs leading-5 text-ink">{warning}</p>)}
-              {recommendations.length ? <div className="space-y-3">{recommendations.map((recommendation) => <RecommendationCard key={recommendation.experience.id} recommendation={recommendation} inWishlist={wishlist.some((item) => item.experience.id === recommendation.experience.id)} saving={saving} onAdd={() => void addToWishlist(recommendation.experience.id)} />)}</div> : <p className="rounded-2xl border border-dashed border-line-strong p-4 text-sm leading-6 text-ink-muted">No experience passed the group’s current hard constraints. If a date is set, the catalog must have verified opening hours and real availability for that date.</p>}
+              {recommendations.length ? <div className="space-y-3">{recommendations.map((recommendation) => <RecommendationCard key={recommendation.experience.id} recommendation={recommendation} inWishlist={wishlist.some((item) => item.experience.id === recommendation.experience.id)} saving={saving} onAdd={() => void addToWishlist(recommendation.experience.id)} />)}</div> : <p className="rounded-2xl border border-dashed border-line-strong p-4 text-sm leading-6 text-ink-muted">No catalog place currently fits the group’s known budget, distance, and accessibility limits. Try a wider search or update the group preferences.</p>}
             </CardBody></Card>
           </Section>
 
@@ -484,12 +487,18 @@ export function CollabGroupWorkspace({ groupId }: { groupId: string }) {
 function RecommendationCard({ recommendation, inWishlist, saving, onAdd }: { recommendation: CollabRecommendation; inWishlist: boolean; saving: boolean; onAdd: () => void }) {
   const experience = recommendation.experience;
   const price = experience.price ?? experience.maximum_price ?? experience.minimum_price;
+  const priceLabel = price == null
+    ? "Venue price not listed"
+    : experience.is_price_estimated && experience.minimum_price != null && experience.maximum_price != null
+      ? `Est. ₹${Math.round(experience.minimum_price)}–₹${Math.round(experience.maximum_price)}`
+      : `${experience.is_price_estimated ? "Est. " : "Listed "}₹${Math.round(price)}`;
   const score = recommendation.compatibility_score;
   return (
     <article className="rounded-2xl border border-line bg-surface-raised p-4 transition duration-200 hover:-translate-y-0.5 hover:shadow-md">
       <div className="flex items-start justify-between gap-3"><div className="min-w-0"><h3 className="font-semibold text-ink">{experience.title}</h3><p className="mt-1 text-xs text-ink-muted">{experience.category.name} · {experience.location.place_name || experience.location.locality || experience.location.city}</p></div><Badge tone="success">{score}% match</Badge></div>
+      <div className="mt-2 flex flex-wrap gap-1.5"><Badge tone={recommendation.schedule_status === "VERIFIED" ? "success" : "warning"}>{recommendation.schedule_status === "VERIFIED" ? "Hours and capacity checked" : "Confirm hours and availability"}</Badge>{recommendation.hard_constraint_status === "UNKNOWN" ? <Badge tone="warning">Some group limits need checking</Badge> : null}</div>
       <p className="mt-2 line-clamp-2 text-sm leading-5 text-ink-muted">{experience.short_description}</p>
-      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-subtle"><span>{price != null ? `₹${price}` : "Price unavailable"}</span>{experience.duration_minutes != null ? <span>{experience.duration_minutes} min</span> : null}<span>{experience.provider.business_name}</span></div>
+      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-subtle"><span>{priceLabel}</span>{experience.duration_minutes != null ? <span>{experience.duration_is_estimated ? "~" : ""}{experience.duration_minutes} min</span> : null}<span>{experience.provider.business_name}</span></div>
       {recommendation.matched_preferences.length ? <div className="mt-3 flex flex-wrap gap-1.5">{recommendation.matched_preferences.slice(0, 4).map((signal) => <Badge key={signal} tone="neutral">{signal}</Badge>)}</div> : <p className="mt-3 text-xs text-ink-subtle">No explicit preference match; shown from group objectives.</p>}
       <Button className="mt-4 w-full" size="sm" variant={inWishlist ? "secondary" : "outline"} disabled={inWishlist || saving} onClick={onAdd}>{inWishlist ? "In shared wishlist" : "Add to wishlist"}</Button>
     </article>

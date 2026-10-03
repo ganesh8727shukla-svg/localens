@@ -42,6 +42,17 @@ def test_weather_and_forecast_return_normalized_mock_data(client) -> None:
     assert forecast.json()[0]["context_status"] == "MOCK"
 
 
+def test_explicit_weather_refresh_uses_adapter_refresh_method(client) -> None:
+    traveler = register_traveler(client, "weather-refresh@example.com")
+    headers = auth_header(traveler)
+    current = client.get("/api/v1/context/weather?lat=18.93&lng=72.83&refresh=true", headers=headers)
+    forecast = client.get("/api/v1/context/weather/forecast?lat=18.93&lng=72.83&refresh=true", headers=headers)
+    assert current.status_code == 200
+    assert current.json()["context_status"] == "MOCK"
+    assert forecast.status_code == 200
+    assert forecast.json()[0]["context_status"] == "MOCK"
+
+
 def test_forecast_limit_is_validated(client) -> None:
     traveler = register_traveler(client, "weather-limit@example.com")
     response = client.get(
@@ -64,4 +75,3 @@ def test_weather_provider_errors_do_not_leak_provider_details(client) -> None:
     forecast = client.get("/api/v1/context/weather/forecast?lat=18.93&lng=72.83", headers=headers)
     assert forecast.status_code == 503
     assert "weather-secret" not in forecast.text
-

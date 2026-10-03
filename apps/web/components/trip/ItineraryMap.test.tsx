@@ -302,7 +302,7 @@ describe("ItineraryMap", () => {
     expect(rendered.querySelector('[role="img"]')?.getAttribute("aria-label")).toContain("Fort afternoon");
   });
 
-  it("requests nearby points only after Explore nearby is clicked", async () => {
+  it("loads nearby OpenStreetMap points when Explore nearby is clicked", async () => {
     const poi: NearbyPOI = {
       osm_type: "node",
       osm_id: 42,
@@ -318,15 +318,15 @@ describe("ItineraryMap", () => {
 
     expect(getNearbyPoisMock).not.toHaveBeenCalled();
     await act(async () => {
-      clickButton("Explore nearby");
+      clickButton("Nearby places · 2 km");
       await Promise.resolve();
       await Promise.resolve();
     });
     expect(getNearbyPoisMock).toHaveBeenCalledTimes(1);
     expect(getNearbyPoisMock).toHaveBeenCalledWith(
       { lat: 18.93, lng: 72.83 },
-      500,
-      ["restaurant", "cafe", "museum", "gallery", "park"],
+      2000,
+      ["restaurant", "cafe", "museum", "gallery", "attraction", "market", "park", "theatre", "library", "viewpoint", "arts_center"],
       expect.any(AbortSignal),
     );
     expect(rendered.textContent).toContain("Nearby Cafe");

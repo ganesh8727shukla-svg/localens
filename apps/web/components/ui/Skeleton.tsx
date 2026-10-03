@@ -6,7 +6,7 @@ export function Skeleton({ className }: { className?: string }) {
       role="presentation"
       aria-hidden="true"
       className={cn(
-        "animate-pulse rounded-2xl bg-surface-sunken motion-reduce:animate-none",
+        "skeleton-shimmer rounded-2xl border border-line/40 motion-reduce:animate-none",
         className,
       )}
     />

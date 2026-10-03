@@ -10,6 +10,8 @@ import { ExperienceComposer } from "@/components/experience/ExperienceComposer";
 import { ApiStatusBadge } from "@/components/common/ApiStatusBadge";
 import { DemoDataBadge } from "@/components/ui/DemoDataBadge";
 import { Button } from "@/components/ui/Button";
+import { TravelDoodles } from "@/components/common/TravelDoodles";
+import { TravelShapesBackground } from "@/components/common/TravelShapesBackground";
 import { mockExperiences } from "@/mocks/experiences";
 import { mockTrip } from "@/mocks/trip";
 
@@ -45,7 +47,7 @@ export default function LandingPage() {
 
   return (
     <>
-      <section className="relative overflow-hidden border-b border-line bg-surface">
+      <section className="landing-hero route-arrive relative overflow-hidden border-b border-line bg-surface">
         <div
           className="pointer-events-none absolute inset-0 opacity-70"
           style={{
@@ -54,13 +56,15 @@ export default function LandingPage() {
           }}
           aria-hidden="true"
         />
-        <PageContainer className="motion-arrive relative flex flex-col items-center gap-8 py-16 text-center sm:py-24">
+        <TravelShapesBackground variant="hero" />
+        <TravelDoodles variant="hero" />
+        <PageContainer className="landing-hero-content relative z-10 flex flex-col items-center gap-8 py-16 text-center sm:py-24">
           <span className="inline-flex items-center gap-2 rounded-full border border-line bg-surface-raised px-3.5 py-1.5 text-xs font-medium text-ink-muted shadow-sm">
             <Brain className="size-3.5 text-accent" aria-hidden="true" />
             AI-native local experience companion
           </span>
 
-          <h1 className="max-w-3xl text-4xl font-semibold tracking-tight text-ink sm:text-5xl">
+          <h1 className="focus-arrive max-w-3xl text-4xl font-semibold tracking-tight text-ink sm:text-5xl">
             Discover local experiences based on what you actually want
           </h1>
           <p className="max-w-xl text-base leading-7 text-ink-muted sm:text-lg">

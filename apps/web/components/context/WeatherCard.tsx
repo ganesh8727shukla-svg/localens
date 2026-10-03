@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { Cloud, CloudRain, Download, Droplets, RefreshCw, Wind } from "lucide-react";
+import { Cloud, CloudLightning, CloudRain, CloudSun, Download, Droplets, RefreshCw, Sun, Wind } from "lucide-react";
 import { getWeatherContext, getWeatherForecast } from "@/lib/api/context";
 import { downloadJsonFile } from "@/lib/utils/downloadJson";
-import { formatWeatherTime, formatWeatherValue, weatherStatusLabel, weatherStatusTone } from "@/lib/weather/weatherDisplay";
+import { formatWeatherOffset, formatWeatherTime, formatWeatherValue, weatherConditionLabel, weatherStatusLabel, weatherStatusTone } from "@/lib/weather/weatherDisplay";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody } from "@/components/ui/Card";
@@ -56,10 +56,10 @@ export function WeatherCard({ latitude, longitude, locationLabel }: WeatherCardP
 
     const currentRequest = testScenario
       ? getWeatherContext(latitude, longitude, controller.signal, testScenario)
-      : getWeatherContext(latitude, longitude, controller.signal);
+      : getWeatherContext(latitude, longitude, controller.signal, undefined, refreshKey > 0);
     const forecastRequest = testScenario
       ? getWeatherForecast(latitude, longitude, 8, controller.signal, testScenario)
-      : getWeatherForecast(latitude, longitude, 8, controller.signal);
+      : getWeatherForecast(latitude, longitude, 8, controller.signal, undefined, refreshKey > 0);
     void Promise.allSettled([currentRequest, forecastRequest]).then(([currentResult, forecastResult]) => {
       if (controller.signal.aborted) return;
       setResult({
@@ -75,9 +75,15 @@ export function WeatherCard({ latitude, longitude, locationLabel }: WeatherCardP
   }, [coordinatesAvailable, latitude, longitude, refreshKey, requestKey, testScenario]);
 
   const updatedAt = current
-    ? formatWeatherTime(current.fetched_at ?? current.last_updated_at)
+    ? formatWeatherTime(current.fetched_at ?? current.last_updated_at, current.timezone_offset_seconds)
     : null;
   const currentUnavailable = currentError || current?.context_status === "UNAVAILABLE";
+  const currentCondition = weatherConditionLabel(current?.condition);
+  const WeatherIcon = currentCondition === "Clear" ? Sun
+    : currentCondition === "Rain" || currentCondition === "Drizzle" ? CloudRain
+      : currentCondition === "Thunderstorms" ? CloudLightning
+        : currentCondition === "Cloudy" ? CloudSun : Cloud;
+  const localOffset = formatWeatherOffset(current?.timezone_offset_seconds);
 
   return (
     <Card id="trip-weather" aria-busy={loading}>
@@ -124,7 +130,7 @@ export function WeatherCard({ latitude, longitude, locationLabel }: WeatherCardP
           </div>
           {SHOW_WEATHER_TEST_SCENARIOS ? (
             <label className="flex flex-col gap-1 text-xs text-ink-muted">
-              <span className="font-medium">Weather test scenario · development only</span>
+              <span className="font-medium">Test inputs · development only</span>
               <select
                 aria-label="Weather test scenario"
                 className="h-9 rounded-lg border border-line-strong bg-surface px-2 text-xs text-ink"
@@ -167,12 +173,12 @@ export function WeatherCard({ latitude, longitude, locationLabel }: WeatherCardP
             ) : current ? (
               <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)] sm:items-center">
                 <div className="flex items-center gap-3">
-                  <Cloud className="size-9 shrink-0 text-accent" aria-hidden="true" />
+                  <WeatherIcon className="size-9 shrink-0 text-accent" aria-hidden="true" />
                   <div>
                     <p className="text-3xl font-semibold tracking-tight text-ink">
                       {formatWeatherValue(current.temperature_c, "°C") ?? "—"}
                     </p>
-                    {current.condition ? <p className="text-sm text-ink-muted">{current.condition}</p> : null}
+                    {currentCondition ? <p className="text-sm text-ink-muted">{currentCondition}</p> : null}
                     {current.feels_like_c !== null ? <p className="text-xs text-ink-subtle">Feels like {formatWeatherValue(current.feels_like_c, "°C")}</p> : null}
                   </div>
                 </div>
@@ -190,9 +196,10 @@ export function WeatherCard({ latitude, longitude, locationLabel }: WeatherCardP
 
             {updatedAt ? (
               <p className="text-xs text-ink-subtle">
-                {current?.context_status === "UNAVAILABLE" || currentError ? "Last checked" : "Updated"} {updatedAt}
+                {current?.context_status === "UNAVAILABLE" || currentError ? "Last checked" : "Provider fetched"} {updatedAt}{localOffset ? ` · ${localOffset}` : ""}
               </p>
             ) : null}
+            {current?.context_status === "CACHED" ? <p className="text-xs text-ink-subtle">This is a previously fetched OpenWeather response. Use Refresh weather to request a fresh provider response.</p> : null}
 
             {current?.severe_alert ? (
               <p className="rounded-xl bg-danger-soft px-3.5 py-3 text-sm text-danger" role="alert">
@@ -201,16 +208,16 @@ export function WeatherCard({ latitude, longitude, locationLabel }: WeatherCardP
             ) : null}
 
             <section className="space-y-2 border-t border-line pt-3" aria-label="Weather forecast">
-              <h3 className="text-sm font-semibold text-ink">Next forecast updates</h3>
+              <h3 className="text-sm font-semibold text-ink">Upcoming 3-hour forecast</h3>
               {forecastError ? (
                 <p className="text-xs text-ink-muted" role="status">Forecast is unavailable right now.</p>
               ) : forecast.length ? (
                 <ol className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                   {forecast.map((entry, index) => (
                     <li key={`${entry.forecast_at ?? "forecast"}-${index}`} className="rounded-xl bg-surface-sunken px-3 py-2.5">
-                      <p className="text-xs font-medium text-ink-muted">{formatWeatherTime(entry.forecast_at) ?? "Forecast time unavailable"}</p>
+                      <p className="text-xs font-medium text-ink-muted">{formatWeatherTime(entry.forecast_at, entry.timezone_offset_seconds) ?? "Forecast time unavailable"}</p>
                       {entry.temperature_c !== null ? <p className="mt-1 text-lg font-semibold text-ink">{formatWeatherValue(entry.temperature_c, "°C")}</p> : null}
-                      {entry.condition ? <p className="text-xs text-ink-muted">{entry.condition}</p> : null}
+                      {entry.condition ? <p className="text-xs text-ink-muted">{weatherConditionLabel(entry.condition)}</p> : null}
                       <p className="mt-1 text-xs leading-5 text-ink-subtle">
                         {[entry.feels_like_c !== null ? `Feels ${formatWeatherValue(entry.feels_like_c, "°C")}` : null,
                           entry.humidity !== null ? `Humidity ${formatWeatherValue(entry.humidity, "%")}` : null,
@@ -220,9 +227,8 @@ export function WeatherCard({ latitude, longitude, locationLabel }: WeatherCardP
                           entry.visibility_km !== null ? `Visibility ${formatWeatherValue(entry.visibility_km, " km")}` : null]
                           .filter(Boolean).join(" · ") || "No additional measurements"}
                       </p>
-                      <p className="mt-1 text-[10px] leading-4 text-ink-subtle">{entry.source} · {entry.timezone ?? "Timezone unavailable"} · code {entry.weather_code ?? "—"} · fetched {formatWeatherTime(entry.fetched_at) ?? "time unavailable"} · expires {formatWeatherTime(entry.expires_at) ?? "time unavailable"}</p>
+                      <p className="mt-1 text-[10px] leading-4 text-ink-subtle">{weatherStatusLabel(entry.context_status)}{formatWeatherOffset(entry.timezone_offset_seconds) ? ` · ${formatWeatherOffset(entry.timezone_offset_seconds)}` : ""}</p>
                       {entry.severe_alert ? <p className="mt-1 text-xs font-medium text-danger">Severe alert</p> : null}
-                      {entry.context_status !== current?.context_status ? <p className="mt-1 text-[11px] text-ink-subtle">{weatherStatusLabel(entry.context_status)} data</p> : null}
                     </li>
                   ))}
                 </ol>
@@ -235,13 +241,13 @@ export function WeatherCard({ latitude, longitude, locationLabel }: WeatherCardP
                 <summary className="cursor-pointer font-medium text-ink">Weather source and location details</summary>
                 <dl className="mt-3 grid gap-x-5 gap-y-2 sm:grid-cols-2">
                   <div><dt className="font-medium text-ink">Coordinates</dt><dd>{current.latitude.toFixed(5)}, {current.longitude.toFixed(5)}</dd></div>
-                  <div><dt className="font-medium text-ink">Timezone</dt><dd>{current.timezone ?? "Not provided"}</dd></div>
+                  <div><dt className="font-medium text-ink">Provider timezone</dt><dd>{current.timezone ?? localOffset ?? "Not provided by provider"}</dd></div>
                   <div><dt className="font-medium text-ink">Provider status</dt><dd>{current.source} · {weatherStatusLabel(current.context_status)}</dd></div>
                   <div><dt className="font-medium text-ink">Weather code</dt><dd>{current.weather_code ?? "Not provided"}</dd></div>
-                  <div><dt className="font-medium text-ink">Observed</dt><dd>{formatWeatherTime(current.observed_at) ?? "Not provided"}</dd></div>
-                  <div><dt className="font-medium text-ink">Last updated</dt><dd>{formatWeatherTime(current.last_updated_at) ?? "Not provided"}</dd></div>
-                  <div><dt className="font-medium text-ink">Last fetched</dt><dd>{formatWeatherTime(current.fetched_at) ?? "Not provided"}</dd></div>
-                  <div><dt className="font-medium text-ink">Data expires</dt><dd>{formatWeatherTime(current.expires_at) ?? "Not provided"}</dd></div>
+                  <div><dt className="font-medium text-ink">Observed</dt><dd>{formatWeatherTime(current.observed_at, current.timezone_offset_seconds) ?? "Not provided"}</dd></div>
+                  <div><dt className="font-medium text-ink">Last updated</dt><dd>{formatWeatherTime(current.last_updated_at, current.timezone_offset_seconds) ?? "Not provided"}</dd></div>
+                  <div><dt className="font-medium text-ink">Last fetched</dt><dd>{formatWeatherTime(current.fetched_at, current.timezone_offset_seconds) ?? "Not provided"}</dd></div>
+                  <div><dt className="font-medium text-ink">Data expires</dt><dd>{formatWeatherTime(current.expires_at, current.timezone_offset_seconds) ?? "Not provided"}</dd></div>
                 </dl>
               </details>
             ) : null}

@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { formatWeatherTime, formatWeatherValue, weatherStatusLabel, weatherStatusTone } from "@/lib/weather/weatherDisplay";
+import { formatWeatherOffset, formatWeatherTime, formatWeatherValue, weatherConditionLabel, weatherStatusLabel, weatherStatusTone } from "@/lib/weather/weatherDisplay";
 
 describe("weather display helpers", () => {
   it.each([
-    ["LIVE", "Live weather", "success"],
-    ["CACHED", "Cached weather", "neutral"],
+    ["LIVE", "OpenWeather · live", "success"],
+    ["CACHED", "OpenWeather · cached", "neutral"],
     ["STALE", "Weather may be out of date", "warning"],
-    ["MOCK", "Development weather", "highlight"],
+    ["MOCK", "Development mock", "highlight"],
     ["UNAVAILABLE", "Weather unavailable", "danger"],
   ] as const)("labels %s context explicitly", (status, label, tone) => {
     expect(weatherStatusLabel(status)).toBe(label);
@@ -21,5 +21,8 @@ describe("weather display helpers", () => {
     expect(formatWeatherTime(null)).toBeNull();
     expect(formatWeatherTime("invalid")).toBeNull();
     expect(formatWeatherTime("2026-09-27T09:00:00Z")).not.toBeNull();
+    expect(formatWeatherTime("2026-09-27T09:00:00Z", 19_800)).toContain("2:30 PM");
+    expect(formatWeatherOffset(19_800)).toBe("UTC+05:30");
+    expect(weatherConditionLabel("Clouds")).toBe("Cloudy");
   });
 });

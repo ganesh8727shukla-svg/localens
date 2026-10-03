@@ -114,7 +114,7 @@
   --color-danger: var(--color-danger);
   --color-danger-soft: var(--color-danger-soft);
 
-  --font-sans: var(--font-sans);
+  --font-sans: "Avenir Next", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
 
   --radius-sm: var(--radius-sm);
   --radius-md: var(--radius-md);
@@ -166,45 +166,403 @@ body {
   -ms-overflow-style: none;
 }
 
-@keyframes soft-rise-in {
+/* Light, motion-safe arrivals for route content and focused surfaces. */
+@keyframes route-arrive {
   from {
     opacity: 0;
-    transform: translate3d(0, 12px, 0);
+    filter: blur(5px);
+    transform: translateY(10px);
   }
 
   to {
     opacity: 1;
+    filter: blur(0);
+    transform: translateY(0);
+  }
+}
+
+@keyframes focus-arrive {
+  from {
+    opacity: 0;
+    filter: blur(7px);
+    transform: translateY(16px) scale(0.99);
+  }
+
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes scroll-reveal-in {
+  from {
+    opacity: 0;
+    filter: blur(2px);
+    transform: translate3d(34px, 0, 0);
+  }
+
+  to {
+    opacity: 1;
+    filter: blur(0);
     transform: translate3d(0, 0, 0);
   }
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  .motion-arrive {
-    animation: soft-rise-in 480ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+@keyframes skeleton-sweep {
+  from {
+    transform: translateX(-100%);
   }
 
-  .motion-stagger > * {
-    animation: soft-rise-in 460ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes doodle-drift {
+  0%,
+  100% {
+    translate: 0 0;
   }
 
-  .motion-stagger > :nth-child(2) {
-    animation-delay: 65ms;
+  50% {
+    translate: 0 -6px;
+  }
+}
+
+@keyframes doodle-breathe {
+  0%,
+  100% {
+    transform: scale(0.96) rotate(-2deg);
   }
 
-  .motion-stagger > :nth-child(3) {
-    animation-delay: 130ms;
+  50% {
+    transform: scale(1.06) rotate(2deg);
+  }
+}
+
+@keyframes float-slow-2d {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
   }
 
-  .motion-stagger > :nth-child(4) {
-    animation-delay: 195ms;
+  50% {
+    transform: translate3d(-10px, -22px, 0) rotate(5deg);
+  }
+}
+
+@keyframes float-reverse-2d {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+
+  50% {
+    transform: translate3d(12px, -18px, 0) rotate(-4deg);
+  }
+}
+
+@keyframes float-subtle-2d {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+
+  50% {
+    transform: translate3d(0, -12px, 0);
+  }
+}
+
+@keyframes spin-slow-2d {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes pulse-gentle-2d {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.85;
+  }
+
+  50% {
+    transform: scale(1.05);
+    opacity: 1;
+  }
+}
+
+.route-arrive,
+#main-content > :first-child {
+  animation: route-arrive 560ms cubic-bezier(0.2, 0.75, 0.25, 1) both;
+}
+
+.motion-arrive {
+  animation: route-arrive 560ms cubic-bezier(0.2, 0.75, 0.25, 1) both;
+}
+
+.focus-arrive,
+.motion-stagger > * {
+  animation: focus-arrive 680ms cubic-bezier(0.2, 0.75, 0.25, 1) both;
+}
+
+.motion-stagger > :nth-child(1) {
+  animation-delay: 70ms;
+}
+
+.motion-stagger > :nth-child(2) {
+  animation-delay: 140ms;
+}
+
+.motion-stagger > :nth-child(3) {
+  animation-delay: 210ms;
+}
+
+.motion-stagger > :nth-child(4) {
+  animation-delay: 280ms;
+}
+
+.motion-delay-2 {
+  animation-delay: 140ms;
+}
+
+.motion-delay-3 {
+  animation-delay: 210ms;
+}
+
+.motion-delay-4 {
+  animation-delay: 280ms;
+}
+
+.scroll-reveal {
+  opacity: 1;
+}
+
+@supports (animation-timeline: view()) {
+  .scroll-reveal {
+    animation: scroll-reveal-in linear both;
+    animation-timeline: view();
+    animation-range: entry 0% entry 78%;
+  }
+}
+
+.skeleton-shimmer {
+  position: relative;
+  overflow: hidden;
+  background-color: var(--color-surface-sunken);
+}
+
+.skeleton-shimmer::after {
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.55) 50%,
+    transparent 100%
+  );
+  animation: skeleton-sweep 1.8s infinite ease-in-out;
+  content: "";
+}
+
+.shape-float-slow {
+  animation: float-slow-2d 16s ease-in-out infinite;
+  will-change: transform;
+}
+
+.shape-float-reverse {
+  animation: float-reverse-2d 19s ease-in-out infinite;
+  will-change: transform;
+}
+
+.shape-float-subtle {
+  animation: float-subtle-2d 12s ease-in-out infinite;
+  will-change: transform;
+}
+
+.shape-spin-slow {
+  animation: spin-slow-2d 38s linear infinite;
+  transform-origin: center;
+  will-change: transform;
+}
+
+.shape-pulse-gentle {
+  animation: pulse-gentle-2d 8s ease-in-out infinite;
+  transform-origin: center;
+  will-change: transform, opacity;
+}
+
+.ambient-surface {
+  position: relative;
+  isolation: isolate;
+  background: var(--color-bg);
+}
+
+.ambient-surface::before {
+  position: fixed;
+  z-index: 0;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--color-pastel-sky) 14%, transparent), transparent 60%),
+    radial-gradient(circle, color-mix(in srgb, var(--color-ink) 10%, transparent) 1px, transparent 1.4px);
+  background-size: 100% 100%, 24px 24px;
+  content: "";
+}
+
+.ambient-surface > .app-content {
+  position: relative;
+  z-index: 1;
+}
+
+.ambient-surface > nav {
+  z-index: 40;
+}
+
+.travel-doodles {
+  position: fixed;
+  z-index: 45;
+  inset: 0;
+  pointer-events: none;
+}
+
+.travel-doodles--hero {
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+}
+
+.doodle-drift,
+.travel-doodle__float {
+  position: fixed;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  pointer-events: auto;
+  cursor: default;
+  animation: doodle-drift 7.2s ease-in-out infinite;
+  opacity: 0;
+  filter: drop-shadow(0 5px 5px color-mix(in srgb, var(--doodle-ink) 15%, transparent));
+  transition: opacity 500ms ease, filter 260ms ease, transform 260ms ease;
+}
+
+.travel-doodles--hero .travel-doodle__float {
+  position: absolute;
+}
+
+.travel-doodle__float[data-ready="true"] {
+  opacity: 1;
+}
+
+.travel-doodle__float:hover {
+  z-index: 55;
+  filter: drop-shadow(0 12px 10px color-mix(in srgb, var(--doodle-ink) 23%, transparent));
+  transform: translateY(-5px) rotate(4deg) scale(1.08);
+}
+
+.travel-doodle__art {
+  position: relative;
+  display: grid;
+  width: calc(100% - 6px);
+  height: calc(100% - 6px);
+  place-items: center;
+  border: 1.5px dashed color-mix(in srgb, var(--doodle-ink) 52%, transparent);
+  border-radius: 43% 57% 52% 48% / 54% 43% 57% 46%;
+  background: color-mix(in srgb, var(--doodle-fill) 78%, transparent);
+  color: var(--doodle-ink);
+  transition: transform 420ms cubic-bezier(0.2, 0.75, 0.25, 1), background-color 280ms ease;
+}
+
+.travel-doodle__float:hover .travel-doodle__art {
+  background: color-mix(in srgb, var(--doodle-fill) 94%, white);
+}
+
+.travel-doodle__art--rose { --doodle-ink: var(--color-accent-ink); --doodle-fill: var(--color-pastel-rose); }
+.travel-doodle__art--mint { --doodle-ink: var(--color-ink); --doodle-fill: var(--color-pastel-mint); }
+.travel-doodle__art--sky { --doodle-ink: var(--color-ink); --doodle-fill: var(--color-pastel-sky); }
+.travel-doodle__art--lemon { --doodle-ink: var(--color-ink); --doodle-fill: var(--color-pastel-lemon); }
+.travel-doodle__art--lavender { --doodle-ink: var(--color-ink); --doodle-fill: var(--color-pastel-lavender); }
+.travel-doodle__art--teal { --doodle-ink: var(--color-accent-ink); --doodle-fill: var(--color-accent); }
+.travel-doodle__art--tang { --doodle-ink: var(--color-ink); --doodle-fill: var(--color-highlight); }
+.travel-doodle__art--guava { --doodle-ink: var(--color-ink); --doodle-fill: var(--color-danger-soft); }
+
+.doodle-breathe,
+.travel-doodle__icon {
+  width: 42px;
+  height: 42px;
+  overflow: visible;
+  transform-origin: center;
+  animation: doodle-breathe 4.6s ease-in-out infinite;
+}
+
+.porcelain-card {
+  box-shadow: var(--shadow-soft);
+  transition: transform 240ms cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 240ms cubic-bezier(0.16, 1, 0.3, 1), border-color 240ms ease;
+}
+
+.porcelain-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 30px -8px hsl(var(--shadow-color) / 0.15);
+}
+
+@media (max-width: 1279px) {
+  .travel-doodles--hero {
+    display: none;
+  }
+}
+
+@media (max-width: 1023px) {
+  .travel-doodles:not(.travel-doodles--hero) {
+    display: none;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  #main-content > :first-child,
+  .route-arrive,
+  .focus-arrive,
   .motion-arrive,
-  .motion-stagger > * {
+  .motion-stagger > *,
+  .scroll-reveal,
+  .shape-float-slow,
+  .shape-float-reverse,
+  .shape-float-subtle,
+  .shape-spin-slow,
+  .shape-pulse-gentle,
+  .travel-doodle__float,
+  .travel-doodle__icon,
+  .skeleton-shimmer::after {
     animation: none !important;
+  }
+
+  #main-content > :first-child,
+  .route-arrive,
+  .focus-arrive,
+  .motion-arrive,
+  .motion-stagger > *,
+  .scroll-reveal {
     opacity: 1 !important;
+    filter: none !important;
     transform: none !important;
+  }
+
+  .travel-doodle__float,
+  .travel-doodle__art,
+  .porcelain-card {
+    transition: none !important;
+  }
+
+  .porcelain-card:hover,
+  .travel-doodle__float:hover {
+    transform: none;
   }
 }

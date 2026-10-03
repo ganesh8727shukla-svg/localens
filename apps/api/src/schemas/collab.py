@@ -115,7 +115,10 @@ class CollabRecommendation(BaseModel):
     group_objective_score: float
     member_satisfaction: dict[str, float]
     matched_preferences: list[str]
-    hard_constraint_status: Literal["FEASIBLE"] = "FEASIBLE"
+    # UNKNOWN options can still help a group shortlist a place, but the UI
+    # must not present them as a confirmed bookable stop.
+    hard_constraint_status: Literal["FEASIBLE", "UNKNOWN"] = "FEASIBLE"
+    schedule_status: Literal["VERIFIED", "NEEDS_CONFIRMATION"] = "NEEDS_CONFIRMATION"
 
 
 class CollabRecommendationResponse(BaseModel):

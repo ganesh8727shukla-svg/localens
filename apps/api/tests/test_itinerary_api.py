@@ -156,11 +156,51 @@ def test_cross_traveler_access_forbidden(discovery_client) -> None:
     itinerary_id = body["id"]
     response = discovery_client.get(f"/api/v1/itineraries/{itinerary_id}", headers=auth_header(intruder))
     assert response.status_code == 404
+    weather_response = discovery_client.get(
+        f"/api/v1/itineraries/{itinerary_id}/weather", headers=auth_header(intruder)
+    )
+    assert weather_response.status_code == 404
 
 
 def test_get_itinerary_requires_auth(discovery_client) -> None:
     response = discovery_client.get("/api/v1/itineraries/some-id")
     assert response.status_code == 401
+
+
+def test_scheduled_weather_advisory_requires_auth(discovery_client) -> None:
+    response = discovery_client.get("/api/v1/itineraries/some-id/weather")
+    assert response.status_code == 401
+
+
+def test_scheduled_weather_advisory_is_read_only(discovery_client, discovery_dataset) -> None:
+    user = register_traveler(discovery_client, "trip-weather-owner@example.com")
+    compose_response = discovery_client.post(
+        "/api/v1/itineraries/compose",
+        json=_compose_payload(experience_ids=[discovery_dataset["near_experience_id"]], max_experiences=1),
+        headers=auth_header(user),
+    )
+    assert compose_response.status_code == 200, compose_response.text
+    composed = compose_response.json()
+    assert "items" in composed, composed
+
+    before = discovery_client.get(
+        f"/api/v1/itineraries/{composed['id']}", headers=auth_header(user)
+    ).json()
+    response = discovery_client.get(
+        f"/api/v1/itineraries/{composed['id']}/weather", headers=auth_header(user)
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["itinerary_id"] == composed["id"]
+    assert len(body["advisories"]) == 1
+    assert body["advisories"][0]["status"] == "UNKNOWN"
+    assert body["advisories"][0]["source"] == "MOCK"
+
+    after = discovery_client.get(
+        f"/api/v1/itineraries/{composed['id']}", headers=auth_header(user)
+    ).json()
+    assert after["status"] == before["status"]
+    assert [item["item_state"] for item in after["items"]] == [item["item_state"] for item in before["items"]]
 
 
 def test_add_item_requires_ownership(discovery_client) -> None:

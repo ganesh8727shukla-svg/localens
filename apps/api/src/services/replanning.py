@@ -198,6 +198,11 @@ class ReplanningService:
                 new_version=itinerary.version,
                 trigger=trigger,
                 context_summary=(impact.explanation if impact else "No context change supplied."),
+                reason_code="NO_FUTURE_FLEXIBLE_STOP_AFFECTED",
+                message=(
+                    "No upcoming flexible stops were affected. Completed, in-progress, and locked "
+                    "stops are preserved."
+                ),
                 generated_at=now,
             )
 
@@ -244,21 +249,49 @@ class ReplanningService:
                 new_version=itinerary.version,
                 trigger=trigger,
                 context_summary=impact.explanation,
+                reason_code="NO_FUTURE_FLEXIBLE_STOP_AFFECTED",
+                message=(
+                    "The affected item is completed, in progress, or locked. It was preserved "
+                    "without changing the itinerary."
+                ),
                 generated_at=now,
             )
 
-        # Step 7: derive remaining window/budget/constraints.
+        # Step 7: derive replacement windows from the affected gaps. A
+        # replacement belongs where the disrupted stop was; placing it
+        # after the last unaffected stop (the old behavior) made every
+        # partial replan run out of time and could never preserve a useful
+        # afternoon/evening plan.
         window_end = tz_combine(itinerary.itinerary_date, itinerary.end_time, tz)
-        remaining_start = max(now, tz_combine(itinerary.itinerary_date, itinerary.start_time, tz))
-        if kept_flexible or preserved:
-            last_end = max([_planned_end(i) for i in preserved + kept_flexible] or [remaining_start])
-            remaining_start = max(remaining_start, last_end)
+        affected_runs: list[list[ItineraryItem]] = []
+        current_run: list[ItineraryItem] = []
+        for item in items:
+            if item.id in affected_flexible_ids:
+                current_run.append(item)
+            elif current_run:
+                affected_runs.append(current_run)
+                current_run = []
+        if current_run:
+            affected_runs.append(current_run)
+
         remaining_budget = None
         if itinerary.estimated_total_cost is not None:
             spent = sum((i.estimated_cost or 0.0) for i in preserved + kept_flexible)
             remaining_budget = max(0.0, itinerary.estimated_total_cost - spent)
 
-        exclude_ids = {i.experience_id for i in preserved + kept_flexible}
+        exclude_ids = {i.experience_id for i in items}
+        first_affected = affected_runs[0][0]
+        first_experience = experiences_by_id.get(first_affected.experience_id)
+        search_center = first_experience.location if first_experience is not None else None
+        first_predecessor = next(
+            (item for item in reversed(items) if item.sequence_order < first_affected.sequence_order),
+            None,
+        )
+        first_predecessor_end = (
+            _planned_end(first_predecessor) if first_predecessor is not None else
+            tz_combine(itinerary.itinerary_date, itinerary.start_time, tz)
+        )
+        discovery_start = max(now, first_predecessor_end)
 
         itinerary.replanning_status = "REPLANNING"
         await self._session.commit()
@@ -271,46 +304,116 @@ class ReplanningService:
         constraints = TravelerConstraints(
             budget_max=remaining_budget,
             available_date=itinerary.itinerary_date,
-            available_start=remaining_start.time(),
+            available_start=discovery_start.time(),
             available_end=itinerary.end_time,
+            origin_lat=search_center.latitude if search_center is not None else None,
+            origin_lng=search_center.longitude if search_center is not None else None,
+            max_distance_km=10.0 if search_center is not None else None,
         )
         _, ranked_items = await pipeline.run_with_ranking(
             traveler_id=traveler_id,
             raw_query=None,
+            city=search_center.city if search_center is not None else None,
             constraints=constraints,
             limit=self._settings.composer_max_candidates,
         )
         ranked_items = [c for c in ranked_items if c.id not in exclude_ids]
 
-        # Step 10: composition for the remaining segment.
-        origin_item = (preserved + kept_flexible)
-        origin_item.sort(key=lambda i: i.planned_end)
-        origin_lat = origin_lng = None
-        if origin_item:
-            last_exp = experiences_by_id.get(origin_item[-1].experience_id)
-            if last_exp is not None:
-                origin_lat, origin_lng = last_exp.location.latitude, last_exp.location.longitude
-
+        # Step 10: compose independently inside each disrupted gap. Stops
+        # before/after each gap remain at their existing times. The next
+        # unaffected stop is a hard boundary so replacements cannot push
+        # it out of order.
         composer = ExperienceComposerService(self._settings, self._routing)
-        max_new = max(1, len(removed_ids))
-        composition = await composer.compose(
-            candidates=ranked_items,
-            itinerary_date=itinerary.itinerary_date,
-            start_time_of_day=remaining_start.time(),
-            end_time_of_day=itinerary.end_time,
-            max_experiences=max_new,
-            max_budget=remaining_budget,
-            travel_mode=self._settings.composer_default_travel_mode,
-            origin_lat=origin_lat,
-            origin_lng=origin_lng,
-        )
+        replacement_items: list[ComposedItem] = []
+        selected_ids: set[str] = set()
+        for run in affected_runs:
+            first = run[0]
+            last = run[-1]
+            predecessor = next(
+                (item for item in reversed(items) if item.sequence_order < first.sequence_order),
+                None,
+            )
+            successor = next(
+                (
+                    item for item in items
+                    if item.sequence_order > last.sequence_order
+                    and item.id not in affected_flexible_ids
+                    and _planned_start(item) > now
+                ),
+                None,
+            )
+            slot_start = max(
+                now,
+                _planned_end(predecessor) if predecessor is not None
+                else tz_combine(itinerary.itinerary_date, itinerary.start_time, tz),
+            )
+            slot_end = min(_planned_start(successor), window_end) if successor is not None else window_end
+            if slot_start >= slot_end:
+                composition_items: list[ComposedItem] = []
+            else:
+                origin_lat = origin_lng = None
+                if predecessor is not None:
+                    previous_experience = experiences_by_id.get(predecessor.experience_id)
+                    if previous_experience is not None:
+                        origin_lat = previous_experience.location.latitude
+                        origin_lng = previous_experience.location.longitude
+                candidates = [candidate for candidate in ranked_items if candidate.id not in selected_ids]
+                composition = await composer.compose(
+                    candidates=candidates,
+                    itinerary_date=slot_start.date(),
+                    start_time_of_day=slot_start.time(),
+                    end_time_of_day=slot_end.time(),
+                    max_experiences=len(run),
+                    max_budget=remaining_budget,
+                    travel_mode=self._settings.composer_default_travel_mode,
+                    origin_lat=origin_lat,
+                    origin_lng=origin_lng,
+                )
+                composition_items = composition.items
+            if not composition_items:
+                itinerary.replanning_status = "STABLE"
+                await self._session.commit()
+                await publish_itinerary_event(
+                    itinerary_id, "replan_failed",
+                    {"reason_code": "NO_FEASIBLE_REPLACEMENT", "trigger": trigger,
+                     "affected_items": removed_ids},
+                )
+                next_title = (
+                    experiences_by_id.get(successor.experience_id).title
+                    if successor is not None and experiences_by_id.get(successor.experience_id) is not None
+                    else "the end of the itinerary"
+                )
+                return ReplanOutcome(
+                    status=ReplanStatus.REPLAN_FAILED,
+                    itinerary=itinerary,
+                    previous_version=itinerary.version,
+                    new_version=itinerary.version,
+                    trigger=trigger,
+                    changes=ReplanChangeSet(affected_items=removed_ids),
+                    reason_code="NO_FEASIBLE_REPLACEMENT",
+                    message=(
+                        f"No nearby experience fits the affected time gap before {next_title}. "
+                        "Your existing stops were kept. Expand the radius, change the time window, "
+                        "or add a place manually."
+                    ),
+                    context_summary=impact.explanation,
+                    generated_at=now,
+                )
+            replacement_items.extend(composition_items)
+            selected_ids.update(item.experience.id for item in composition_items)
+            if remaining_budget is not None:
+                remaining_budget = max(
+                    0.0,
+                    remaining_budget - sum(item.estimated_cost or 0.0 for item in composition_items),
+                )
 
-        if not composition.items:
+        if not replacement_items:
             itinerary.replanning_status = "STABLE"
             await self._session.commit()
             await publish_itinerary_event(
                 itinerary_id, "replan_failed",
-                {"reason_code": "NO_FEASIBLE_REPLACEMENT", "trigger": trigger},
+                {"reason_code": "NO_FEASIBLE_REPLACEMENT", "trigger": trigger,
+                 "affected_items": removed_ids},
             )
             return ReplanOutcome(
                 status=ReplanStatus.REPLAN_FAILED,
@@ -318,30 +421,29 @@ class ReplanningService:
                 previous_version=itinerary.version,
                 new_version=itinerary.version,
                 trigger=trigger,
+                changes=ReplanChangeSet(affected_items=removed_ids),
                 reason_code="NO_FEASIBLE_REPLACEMENT",
-                message="No feasible replacement experiences were found for the affected slot(s).",
+                message="No nearby experience fits the affected time window. Your existing stops were kept.",
                 context_summary=impact.explanation,
                 generated_at=now,
             )
 
-        # Step 11: merge preserved + kept_flexible + newly composed.
+        # Step 11: merge all retained stops and replacements chronologically.
         merged_composed: list[ComposedItem] = []
-        seq = 1
         for item in preserved + kept_flexible:
             exp = experiences_by_id.get(item.experience_id)
             if exp is None:
                 continue
-            merged_composed.append(_item_to_composed(item, exp, seq))
-            seq += 1
-        base_offset = seq - 1
-        for c in composition.items:
-            c.sequence_order = base_offset + c.sequence_order
-            merged_composed.append(c)
+            merged_composed.append(_item_to_composed(item, exp, 0))
+        merged_composed.extend(replacement_items)
+        merged_composed.sort(key=lambda item: item.planned_start)
+        for sequence, composed_item in enumerate(merged_composed, start=1):
+            composed_item.sequence_order = sequence
 
         # Step 12: full validation.
         validator = ItineraryValidatorService(self._routing)
         all_exp_by_id = {**experiences_by_id}
-        for c in composition.items:
+        for c in replacement_items:
             exp = await exp_repo.get_by_id(c.experience.id)
             if exp is not None:
                 all_exp_by_id[c.experience.id] = exp
@@ -373,6 +475,7 @@ class ReplanningService:
                 previous_version=itinerary.version,
                 new_version=itinerary.version,
                 trigger=trigger,
+                changes=ReplanChangeSet(affected_items=removed_ids),
                 reason_code="REPLAN_VALIDATION_FAILED",
                 message="The replanned itinerary failed post-composition validation.",
                 validation_issues=[i.message for i in validation.issues],
@@ -381,7 +484,7 @@ class ReplanningService:
             )
 
         # Step 13: persist new revision, narrative, emit event.
-        added_ids = [c.experience.id for c in composition.items]
+        added_ids = [c.experience.id for c in replacement_items]
         unchanged_ids = [i.experience_id for i in preserved + kept_flexible]
 
         narrator = ItineraryNarratorService(self._ai, self._settings)
@@ -408,24 +511,23 @@ class ReplanningService:
         # never collide with a real positive sequence_order, then to
         # final values — avoids that regardless of flush/statement order.
         await self._session.flush()
-        kept_count = len(preserved) + len(kept_flexible)
         kept_items = preserved + kept_flexible
         for i, item in enumerate(kept_items, start=1):
             item.sequence_order = -i
         await self._session.flush()
-        for i, item in enumerate(kept_items, start=1):
-            item.sequence_order = i
-        # composition.items is independently numbered starting from 1 by
-        # ExperienceComposerService (it has no knowledge of the preserved/
-        # kept-flexible items already occupying 1..kept_count in this
-        # itinerary) — offset so the merged sequence stays unique per
-        # (itinerary_id, sequence_order), which is a real DB constraint.
-        new_db_items: list[ItineraryItem] = []
-        for offset, c in enumerate(composition.items, start=1):
+        kept_by_slot = {
+            (item.experience_id, _planned_start(item)): item
+            for item in kept_items
+        }
+        for sequence, c in enumerate(merged_composed, start=1):
+            original = kept_by_slot.get((c.experience.id, c.planned_start))
+            if original is not None:
+                original.sequence_order = sequence
+                continue
             new_item = ItineraryItem(
                 itinerary_id=itinerary.id,
                 experience_id=c.experience.id,
-                sequence_order=kept_count + offset,
+                sequence_order=sequence,
                 planned_start=c.planned_start,
                 planned_end=c.planned_end,
                 duration_minutes=c.duration_minutes,
@@ -440,7 +542,6 @@ class ReplanningService:
                 item_state="ACTIVE",
             )
             self._session.add(new_item)
-            new_db_items.append(new_item)
 
         previous_version = itinerary.version
         itinerary.version = previous_version + 1
@@ -589,8 +690,16 @@ def _item_to_composed(item: ItineraryItem, experience: Experience, sequence_orde
     # compares correctly against the aware requested_start/requested_end
     # ItineraryValidatorService.validate() uses.
     local_tz = ZoneInfo(_DEFAULT_TZ)
-    planned_start = item.planned_start if item.planned_start.tzinfo is not None else item.planned_start.replace(tzinfo=local_tz)
-    planned_end = item.planned_end if item.planned_end.tzinfo is not None else item.planned_end.replace(tzinfo=local_tz)
+    planned_start = (
+        item.planned_start
+        if item.planned_start.tzinfo is not None
+        else item.planned_start.replace(tzinfo=local_tz)
+    )
+    planned_end = (
+        item.planned_end
+        if item.planned_end.tzinfo is not None
+        else item.planned_end.replace(tzinfo=local_tz)
+    )
     return ComposedItem(
         experience=ranked_stub,
         sequence_order=sequence_order,

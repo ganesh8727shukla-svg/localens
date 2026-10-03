@@ -144,7 +144,9 @@ class NugenSocialSignalInterpreter:
 
 
 class SocialSignalUnavailableError(Exception):
-    pass
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class SocialSignalRateLimitedError(SocialSignalUnavailableError):
@@ -188,7 +190,9 @@ class BlueskySocialSignalAdapter:
         if response.status_code == 429:
             raise SocialSignalRateLimitedError("Bluesky public search is rate-limited")
         if response.status_code >= 400:
-            raise SocialSignalUnavailableError("Bluesky public search returned an error")
+            raise SocialSignalUnavailableError(
+                "Bluesky public search returned an error", status_code=response.status_code
+            )
         try:
             payload = response.json()
         except ValueError as exc:

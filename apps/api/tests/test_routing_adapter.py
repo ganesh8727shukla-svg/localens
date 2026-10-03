@@ -30,6 +30,18 @@ TABLE_RESPONSE = {
     "distances": [[1413.0, 4501.0]],
 }
 
+ALTERNATIVE_ROUTE_RESPONSE = {
+    "code": "Ok",
+    "routes": [
+        *ROUTE_RESPONSE["routes"],
+        {
+            "distance": 1850.0,
+            "duration": 160.0,
+            "geometry": {"type": "LineString", "coordinates": [[72.8356, 18.9346], [72.833, 18.937], [72.8317, 18.9414]]},
+        },
+    ],
+}
+
 
 def _settings() -> Settings:
     return Settings(osrm_min_interval_seconds=0.0)
@@ -65,6 +77,22 @@ def test_route_geometry_returned_when_requested(monkeypatch) -> None:
 
     assert result.geometry is not None
     assert result.geometry["type"] == "LineString"
+
+
+def test_osrm_alternative_routes_are_parsed_as_additional_geometry(monkeypatch) -> None:
+    fake = FakeAsyncClient(sequence_responder([make_response(200, ALTERNATIVE_ROUTE_RESPONSE)]))
+    _install_fake_client(monkeypatch, fake)
+
+    adapter = OSRMRoutingAdapter(_settings())
+    options = asyncio.run(
+        adapter.get_route_alternatives((18.9346, 72.8356), (18.9414, 72.8317), profile="driving")
+    )
+
+    assert len(options) == 1
+    assert options[0].source == "osrm"
+    assert options[0].distance_km == pytest.approx(1.85)
+    assert options[0].geometry["type"] == "LineString"
+    assert fake.calls[0]["params"]["alternatives"] == "true"
 
 
 def test_table_response_parsed_correctly(monkeypatch) -> None:

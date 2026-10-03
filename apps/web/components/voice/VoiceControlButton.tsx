@@ -39,7 +39,7 @@ export function VoiceControlButton({
         aria-label="Voice input unavailable in this browser"
         title="Voice input isn't supported in this browser"
         className={cn(
-          "inline-flex size-10 shrink-0 cursor-not-allowed items-center justify-center rounded-2xl border border-line bg-surface-raised text-ink-subtle",
+          "inline-flex size-10 shrink-0 cursor-not-allowed items-center justify-center rounded-full border border-line bg-surface-sunken/60 text-ink-subtle",
           className,
         )}
       >
@@ -56,7 +56,7 @@ export function VoiceControlButton({
         aria-label="End voice session"
         title="End voice session"
         className={cn(
-          "inline-flex size-10 shrink-0 items-center justify-center rounded-2xl border border-danger/20 bg-danger-soft text-danger transition-colors hover:brightness-95",
+          "inline-flex size-10 shrink-0 items-center justify-center rounded-full border border-danger/30 bg-danger-soft text-danger shadow-sm transition-all hover:scale-105 active:scale-95",
           className,
         )}
       >
@@ -72,7 +72,7 @@ export function VoiceControlButton({
       aria-label={state === "ERROR" ? "Voice unavailable — try again" : "Start voice conversation"}
       title={state === "ERROR" ? "Voice unavailable — try again" : "Start voice conversation"}
       className={cn(
-        "inline-flex size-10 shrink-0 items-center justify-center rounded-2xl border border-highlight/20 bg-highlight-soft text-highlight transition-colors hover:border-highlight/40",
+        "inline-flex size-10 shrink-0 items-center justify-center rounded-full border border-pastel-mint/80 bg-pastel-mint/35 text-ink shadow-sm transition-all duration-200 hover:scale-105 hover:bg-pastel-mint/55 active:scale-95",
         className,
       )}
     >

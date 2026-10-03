@@ -16,11 +16,11 @@ lat/lng/time-bucket, typed error hierarchy (src/adapters/errors.py).
 Server-side key only — OPENWEATHER_API_KEY is read from Settings and
 never sent to the frontend or embedded in any client-facing response.
 
-NOT VERIFIED against the live OpenWeather API in this worktree — no API
-key is available here (see docs/DECISIONS.md Phase 9 ADR and the Phase 9
-completion report). Verified only via unit tests against a fake HTTP
-client (tests/test_weather_adapter.py) following the same
-mocked-response pattern as test_geocoding_adapter.py/test_routing_adapter.py.
+Live provider availability depends on server configuration and is not
+asserted by the automated unit suite. Tests use a fake HTTP client for
+deterministic coverage (tests/test_weather_adapter.py), following the
+same mocked-response pattern as test_geocoding_adapter.py and
+test_routing_adapter.py.
 """
 
 from __future__ import annotations
@@ -73,12 +73,19 @@ class WeatherContext:
     source_timestamp: datetime | None
     fetched_at: datetime
     expires_at: datetime
+    # OpenWeather provides a numeric UTC offset rather than an IANA timezone.
+    # Preserve it so clients can render the provider's local forecast times.
+    timezone_offset_seconds: int | None = None
 
 
 class WeatherAdapter(Protocol):
     async def get_current(self, lat: float, lng: float) -> WeatherContext: ...
 
     async def get_forecast(self, lat: float, lng: float) -> list[WeatherContext]: ...
+
+    async def refresh_current(self, lat: float, lng: float) -> WeatherContext: ...
+
+    async def refresh_forecast(self, lat: float, lng: float) -> list[WeatherContext]: ...
 
 
 def _time_bucket(seconds_since_epoch: float, bucket_seconds: int) -> int:
@@ -140,10 +147,13 @@ def _parse_current(payload: dict[str, Any], *, fetched_at: datetime, ttl_seconds
         source_timestamp=observed_at,
         fetched_at=fetched_at,
         expires_at=datetime.fromtimestamp(fetched_at.timestamp() + ttl_seconds, tz=UTC),
+        timezone_offset_seconds=(int(payload["timezone"]) if isinstance(payload.get("timezone"), (int, float)) else None),
     )
 
 
-def _parse_forecast_entry(entry: dict[str, Any], *, fetched_at: datetime, ttl_seconds: float) -> WeatherContext:
+def _parse_forecast_entry(
+    entry: dict[str, Any], *, fetched_at: datetime, ttl_seconds: float, timezone_offset_seconds: int | None = None
+) -> WeatherContext:
     main = entry.get("main") or {}
     wind = entry.get("wind") or {}
     weather_list = entry.get("weather") or []
@@ -180,6 +190,7 @@ def _parse_forecast_entry(entry: dict[str, Any], *, fetched_at: datetime, ttl_se
         source_timestamp=observed_at,
         fetched_at=fetched_at,
         expires_at=datetime.fromtimestamp(fetched_at.timestamp() + ttl_seconds, tz=UTC),
+        timezone_offset_seconds=timezone_offset_seconds,
     )
 
 
@@ -214,6 +225,12 @@ class MockWeatherAdapter:
     async def get_forecast(self, lat: float, lng: float) -> list[WeatherContext]:
         current = await self.get_current(lat, lng)
         return [current]
+
+    async def refresh_current(self, lat: float, lng: float) -> WeatherContext:
+        return await self.get_current(lat, lng)
+
+    async def refresh_forecast(self, lat: float, lng: float) -> list[WeatherContext]:
+        return await self.get_forecast(lat, lng)
 
 
 class OpenWeatherAdapter:
@@ -294,6 +311,13 @@ class OpenWeatherAdapter:
         if cached is not None:
             return WeatherContext(**{**cached.__dict__, "source": WeatherSource.CACHED})
 
+        return await self._fetch_current(lat, lng, key)
+
+    async def refresh_current(self, lat: float, lng: float) -> WeatherContext:
+        """Bypass the TTL cache after an explicit user refresh request."""
+        return await self._fetch_current(lat, lng, self._cache_key("current", lat, lng))
+
+    async def _fetch_current(self, lat: float, lng: float, key: str) -> WeatherContext:
         body = await self._request("/weather", lat, lng)
         fetched_at = datetime.now(UTC)
         context = _parse_current(body, fetched_at=fetched_at, ttl_seconds=self._settings.weather_cache_ttl_seconds)
@@ -309,14 +333,27 @@ class OpenWeatherAdapter:
         if cached is not None:
             return [WeatherContext(**{**c.__dict__, "source": WeatherSource.CACHED}) for c in cached]
 
+        return await self._fetch_forecast(lat, lng, key)
+
+    async def refresh_forecast(self, lat: float, lng: float) -> list[WeatherContext]:
+        """Bypass the TTL cache after an explicit user refresh request."""
+        return await self._fetch_forecast(lat, lng, self._cache_key("forecast", lat, lng))
+
+    async def _fetch_forecast(self, lat: float, lng: float, key: str) -> list[WeatherContext]:
         body = await self._request("/forecast", lat, lng)
         fetched_at = datetime.now(UTC)
         entries = body.get("list") or []
+        city = body.get("city") if isinstance(body.get("city"), dict) else {}
+        timezone_offset = city.get("timezone") if isinstance(city, dict) else None
+        timezone_offset_seconds = int(timezone_offset) if isinstance(timezone_offset, (int, float)) else None
         contexts = [
             WeatherContext(
                 **{
                     **_parse_forecast_entry(
-                        e, fetched_at=fetched_at, ttl_seconds=self._settings.weather_cache_ttl_seconds
+                        e,
+                        fetched_at=fetched_at,
+                        ttl_seconds=self._settings.weather_cache_ttl_seconds,
+                        timezone_offset_seconds=timezone_offset_seconds,
                     ).__dict__,
                     "latitude": lat,
                     "longitude": lng,

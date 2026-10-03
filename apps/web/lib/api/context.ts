@@ -1,10 +1,19 @@
 import { apiClient } from "@/lib/api/client";
 import type {
   EventResponse,
+  ItineraryWeatherResponse,
   WeatherContextResponse,
   WeatherForecastEntry,
   WeatherTestScenario,
 } from "@/types/api";
+
+/** GET /api/v1/itineraries/{id}/weather — read-only, per-stop scheduled weather advice. */
+export function getItineraryWeather(itineraryId: string, signal?: AbortSignal) {
+  return apiClient.get<ItineraryWeatherResponse>(
+    `/api/v1/itineraries/${encodeURIComponent(itineraryId)}/weather`,
+    { signal },
+  );
+}
 
 /** GET /api/v1/context/weather — Phase 9, read-only, authenticated.
  * Normalized data only: never a raw OpenWeather payload or API key. Use
@@ -15,9 +24,11 @@ export function getWeatherContext(
   lng: number,
   signal?: AbortSignal,
   scenario?: WeatherTestScenario,
+  refresh = false,
 ) {
   const params = new URLSearchParams({ lat: String(lat), lng: String(lng) });
   if (scenario) params.set("scenario", scenario);
+  if (refresh && !scenario) params.set("refresh", "true");
   return apiClient.get<WeatherContextResponse>(`/api/v1/context/weather?${params.toString()}`, { signal });
 }
 
@@ -30,6 +41,7 @@ export function getWeatherForecast(
   maxEntries = 8,
   signal?: AbortSignal,
   scenario?: WeatherTestScenario,
+  refresh = false,
 ) {
   const params = new URLSearchParams({
     lat: String(lat),
@@ -37,6 +49,7 @@ export function getWeatherForecast(
     max_entries: String(maxEntries),
   });
   if (scenario) params.set("scenario", scenario);
+  if (refresh && !scenario) params.set("refresh", "true");
   return apiClient.get<WeatherForecastEntry[]>(
     `/api/v1/context/weather/forecast?${params.toString()}`,
     { signal },

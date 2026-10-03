@@ -54,6 +54,7 @@ async def get_weather_context(
     lat: float = Query(..., ge=-90, le=90),
     lng: float = Query(..., ge=-180, le=180),
     scenario: WeatherScenario | None = None,
+    refresh: bool = Query(default=False, description="Bypass the live provider cache after an explicit refresh."),
 ) -> WeatherContextResponse:
     if scenario is not None:
         if settings.app_env != "development":
@@ -61,7 +62,7 @@ async def get_weather_context(
         context = build_weather_scenario(scenario, lat, lng)
     else:
         try:
-            context = await weather_adapter.get_current(lat, lng)
+            context = await weather_adapter.refresh_current(lat, lng) if refresh else await weather_adapter.get_current(lat, lng)
         except AdapterError:
             # Return the stable normalized unavailable shape. Provider error
             # details are deliberately not exposed in JSON or logs here.
@@ -74,6 +75,7 @@ async def get_weather_context(
         longitude=context.longitude,
         observed_at=context.observed_at,
         timezone=context.timezone,
+        timezone_offset_seconds=context.timezone_offset_seconds,
         temperature_c=context.temperature_c,
         feels_like_c=context.feels_like_c,
         humidity=context.humidity,
@@ -101,6 +103,7 @@ async def get_weather_forecast(
     lng: float = Query(..., ge=-180, le=180),
     max_entries: int = Query(default=8, ge=1, le=40),
     scenario: WeatherScenario | None = None,
+    refresh: bool = Query(default=False, description="Bypass the live provider cache after an explicit refresh."),
 ) -> list[WeatherForecastEntry]:
     """Return a bounded list of adapter-normalized forecast entries."""
     if scenario is not None:
@@ -109,7 +112,7 @@ async def get_weather_forecast(
         forecasts = [build_weather_scenario(scenario, lat, lng)]
     else:
         try:
-            forecasts = await weather_adapter.get_forecast(lat, lng)
+            forecasts = await weather_adapter.refresh_forecast(lat, lng) if refresh else await weather_adapter.get_forecast(lat, lng)
         except AdapterError:
             # Keep provider diagnostics and credentials out of client responses.
             raise ApiError("Weather forecast is temporarily unavailable.", status_code=503) from None
@@ -126,6 +129,7 @@ async def get_weather_forecast(
                 longitude=lng,
                 forecast_at=context.observed_at,
                 timezone=context.timezone,
+                timezone_offset_seconds=context.timezone_offset_seconds,
                 temperature_c=context.temperature_c,
                 feels_like_c=context.feels_like_c,
                 humidity=context.humidity,

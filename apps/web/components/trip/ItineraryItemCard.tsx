@@ -19,11 +19,11 @@ export function ItineraryItemCard({ item }: { item: ItineraryItem }) {
   return (
     <div
       className={cn(
-        "flex gap-3 rounded-2xl border border-line bg-surface-raised p-3 shadow-soft sm:gap-4 sm:p-4",
+        "porcelain-card flex gap-3 rounded-2xl border border-line bg-surface-raised p-3.5 shadow-soft sm:gap-4 sm:p-4",
         item.status === "at_risk" && "border-danger/40 bg-danger-soft/30",
       )}
     >
-      <div className="flex w-16 shrink-0 items-center justify-center self-start rounded-xl bg-pastel-lemon px-2 py-3 text-center text-sm font-semibold text-ink">
+      <div className="flex w-16 shrink-0 items-center justify-center self-start rounded-xl border border-pastel-lemon/80 bg-pastel-lemon/40 px-2 py-2.5 text-center text-xs font-semibold tabular-nums text-ink shadow-sm">
         {item.time}
       </div>
 
@@ -40,7 +40,7 @@ export function ItineraryItemCard({ item }: { item: ItineraryItem }) {
 
         <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-ink-muted">
           <span className="inline-flex items-center gap-1">
-            <MapPin className="size-3.5 shrink-0" aria-hidden="true" />
+            <MapPin className="size-3.5 shrink-0 text-accent" aria-hidden="true" />
             {item.location} &middot; {item.provider}
           </span>
 

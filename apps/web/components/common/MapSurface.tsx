@@ -25,6 +25,8 @@ const ORIGIN_SOURCE_ID = "map-origin";
 const ORIGIN_LAYER = "map-origin-point";
 const ROUTE_SOURCE_ID = "map-route";
 const ROUTE_LAYER = "map-route-line";
+const ROUTE_ALTERNATIVE_SOURCE_ID = "map-route-alternatives";
+const ROUTE_ALTERNATIVE_LAYER = "map-route-alternative-lines";
 const ANNOTATION_SOURCE_ID = "map-annotations";
 const ANNOTATION_CLUSTER_LAYER = "map-annotation-clusters";
 const ANNOTATION_CLUSTER_COUNT_LAYER = "map-annotation-cluster-count";
@@ -87,6 +89,8 @@ export interface MapSurfaceProps {
   routeGeometry?: GeoJSON.LineString | null;
   /** Additional generic route geometries; MapSurface has no itinerary knowledge. */
   routeGeometries?: GeoJSON.LineString[];
+  /** Actual OSRM alternate-route geometries, never closure-verified. */
+  routeAlternativeGeometries?: GeoJSON.LineString[];
   /** Optional clustered generic points, such as itinerary stops or nearby POIs. */
   annotations?: MapAnnotationCollection;
   onSelectAnnotation?: (id: string) => void;
@@ -112,6 +116,7 @@ export function MapSurface({
   origin = null,
   routeGeometry = null,
   routeGeometries = EMPTY_ROUTE_GEOMETRIES,
+  routeAlternativeGeometries = EMPTY_ROUTE_GEOMETRIES,
   annotations = EMPTY_ANNOTATIONS,
   onSelectAnnotation,
   fitBounds = null,
@@ -265,6 +270,23 @@ export function MapSurface({
           "line-color": palette.accent,
           "line-width": 4,
           "line-opacity": 0.85,
+        },
+      });
+
+      map.addSource(ROUTE_ALTERNATIVE_SOURCE_ID, {
+        type: "geojson",
+        data: EMPTY_COLLECTION,
+      });
+      map.addLayer({
+        id: ROUTE_ALTERNATIVE_LAYER,
+        type: "line",
+        source: ROUTE_ALTERNATIVE_SOURCE_ID,
+        layout: { "line-join": "round", "line-cap": "round" },
+        paint: {
+          "line-color": palette.highlight,
+          "line-width": 4,
+          "line-opacity": 0.9,
+          "line-dasharray": [2, 1.5],
         },
       });
 
@@ -538,6 +560,20 @@ export function MapSurface({
       })),
     });
   }, [routeGeometry, routeGeometries, loaded]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !loaded) return;
+    const source = map.getSource(ROUTE_ALTERNATIVE_SOURCE_ID) as GeoJSONSource | undefined;
+    source?.setData({
+      type: "FeatureCollection",
+      features: routeAlternativeGeometries.map((geometry) => ({
+        type: "Feature",
+        geometry,
+        properties: {},
+      })),
+    });
+  }, [routeAlternativeGeometries, loaded]);
 
   useEffect(() => {
     const map = mapRef.current;
